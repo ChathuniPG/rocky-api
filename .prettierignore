@@ -1,0 +1,11 @@
+dist
+coverage
+node_modules
+package-lock.json
+*.tsbuildinfo
+
+# Hand-authored documentation: keep the author's formatting.
+docs
+CLAUDE.md
+# Kept byte-for-byte as agreed for the team template.
+.github/pull_request_template.md

@@ -1,10 +1,59 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "rules": {
-    "typescript/no-explicit-any": "off",
-    "typescript/no-floating-promises": "error"
+  "plugins": ["typescript", "unicorn", "oxc", "import", "node"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn"
   },
   "env": {
-    "node": true
-  }
+    "node": true,
+    "es2024": true
+  },
+  "ignorePatterns": ["dist/**", "coverage/**", "node_modules/**"],
+  "rules": {
+    "typescript/no-explicit-any": "error",
+    "typescript/no-floating-promises": "error",
+    "typescript/no-misused-promises": "error",
+    "typescript/await-thenable": "error",
+    "typescript/consistent-type-imports": [
+      "error",
+      { "prefer": "type-imports", "fixStyle": "separate-type-imports" }
+    ],
+    "no-console": "error",
+    "eqeqeq": ["error", "always"],
+    "no-var": "error",
+    "prefer-const": "error",
+    "import/no-cycle": "error",
+    "import/no-duplicates": "error",
+    "import/no-unassigned-import": ["warn", { "allow": ["reflect-metadata"] }],
+    "typescript/no-extraneous-class": ["error", { "allowWithDecorator": true }]
+  },
+  "overrides": [
+    {
+      "files": [
+        "src/**/*.controller.ts",
+        "src/**/*.service.ts",
+        "src/**/*.module.ts",
+        "src/**/*.guard.ts",
+        "src/**/*.interceptor.ts",
+        "src/**/*.filter.ts",
+        "src/**/*.strategy.ts",
+        "src/**/*.provider.ts",
+        "src/main.ts"
+      ],
+      "rules": {
+        "typescript/consistent-type-imports": "off"
+      }
+    },
+    {
+      "files": ["**/*.spec.ts", "**/*.e2e-spec.ts", "test/**/*.ts"],
+      "plugins": ["typescript", "unicorn", "oxc", "import", "node", "jest"],
+      "env": { "jest": true },
+      "rules": {
+        "jest/no-focused-tests": "error",
+        "jest/no-disabled-tests": "warn",
+        "jest/expect-expect": "error"
+      }
+    }
+  ]
 }
