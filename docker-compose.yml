@@ -1,0 +1,35 @@
+# Local development database for rocky-api.
+# Credentials come from .env in this folder (Compose reads it automatically);
+# see .env.example for the variables. Start with `npm run db:up`.
+name: rocky-api
+
+services:
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      # `:?` makes Compose refuse to start when a variable is missing, instead of
+      # silently creating a database with empty credentials.
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER must be set in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB must be set in .env}
+    ports:
+      # Bound to 127.0.0.1 only, so the database is not reachable from the local
+      # network. Mirrors production, where PostgreSQL listens on localhost (ADR-009).
+      - '127.0.0.1:${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      # PostgreSQL 18 images keep data in /var/lib/postgresql/18/docker. Mounting the
+      # parent directory (not the pre-18 /var/lib/postgresql/data path) follows the
+      # image's layout and keeps future major-version upgrades (pg_upgrade) possible.
+      - rocky-pgdata:/var/lib/postgresql
+    healthcheck:
+      # `$$` escapes Compose interpolation: the variables are resolved inside the
+      # container, where the image has already set them.
+      test: ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  rocky-pgdata:

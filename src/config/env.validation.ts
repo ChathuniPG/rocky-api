@@ -4,7 +4,7 @@
 import 'reflect-metadata';
 import { plainToInstance } from 'class-transformer';
 import type { ValidationError } from 'class-validator';
-import { IsEnum, IsInt, Max, Min, validateSync } from 'class-validator';
+import { IsEnum, IsInt, IsUrl, Max, Min, validateSync } from 'class-validator';
 
 /** Runtime environments the API supports. */
 export enum NodeEnv {
@@ -29,6 +29,15 @@ export class EnvironmentVariables {
   @Min(1)
   @Max(65535)
   PORT: number = 4000;
+
+  // Required, no default: a missing database must stop the app at startup rather than
+  // fail on the first query. `require_tld: false` allows hosts like localhost or
+  // 127.0.0.1. The value contains the password, so it is never logged (NFR-SEC-04).
+  @IsUrl(
+    { protocols: ['postgres', 'postgresql'], require_protocol: true, require_tld: false },
+    { message: 'DATABASE_URL must be a postgres:// or postgresql:// connection URL' },
+  )
+  DATABASE_URL: string;
 }
 
 /**
