@@ -473,4 +473,12 @@ Figure 5 summarizes the route structure and how authentication controls access.
 
 - **Decision:** Run PostgreSQL on the EC2 instance, bound to localhost only.
 
-- **Consequences:** Lower cost, simpler setup, and the database isn’t publicly reachable. Backups are manual, and the database shares server resources with the apps. Migrating to RDS is a future improvement.
+- **Consequences:** Lower cost, simpler setup, and the database isn’t publicly reachable. Backups are manual, and the database shares server resources with the apps. Migrating to RDS is a future improvement. 
+
+### ADR-010: oxlint as the backend linter
+
+- **Context:** The current NestJS scaffold ships with oxlint (including type-aware linting via oxlint-tsgolint) instead of ESLint. The requirements originally named ESLint.
+
+- **Decision:** Keep oxlint and tighten its configuration to enforce no explicit any, no floating promises and consistent type imports. Prettier remains the formatter.
+
+- **Consequences:** Follows the framework default, adds no dependencies, and lints much faster. Oxlint’s ecosystem and type-aware mode are newer than ESLint’s; if a needed rule is missing or type-aware linting proves unreliable, the project can switch to ESLint with typescript-eslint.

@@ -5,6 +5,7 @@
 | **Version** | **Date**    | **Author**        | **Status** |
 |-------------|-------------|-------------------|------------|
 | 0.1         | 04 Nov 2026 | Chathuni Gunasena | Draft      |
+| 0.2         | 05 Nov 2026 | Chathuni Gunasena | NFR-MNT-01 updated: oxlint replaces ESLint as the linter (see ADR-010)      |
 
 ## 1. Introduction
 
@@ -211,7 +212,7 @@ The system consists of a Next.js web application (frontend) and a NestJS REST AP
 
 ### 4.6 Maintainability
 
-- **NFR-MNT-01:** Code is fully typed TypeScript, with ESLint and Prettier enforced.
+- **NFR-MNT-01:** Code is fully typed TypeScript, with linting (oxlint, including type-aware rules) and formatting (Prettier) enforced.
 
 - **NFR-MNT-02:** A CI pipeline runs lint, type check, build, and tests on every pull request.
 
