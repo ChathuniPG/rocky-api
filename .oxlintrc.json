@@ -25,6 +25,7 @@
     "prefer-const": "error",
     "import/no-cycle": "error",
     "import/no-duplicates": "error",
+    "import/no-unassigned-import": ["warn", { "allow": ["reflect-metadata"] }],
     "typescript/no-extraneous-class": ["error", { "allowWithDecorator": true }]
   },
   "overrides": [
