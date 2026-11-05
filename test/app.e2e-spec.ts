@@ -5,6 +5,10 @@ import type { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/app.setup';
 
+// Boots the real AppModule, including PrismaModule, which connects to PostgreSQL at
+// startup. Prerequisites: `npm run db:up` and DATABASE_URL in .env. This test makes
+// no queries, so it reads and writes no data.
+
 describe('Application bootstrap (e2e)', () => {
   let app: INestApplication<App>;
 
