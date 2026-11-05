@@ -147,7 +147,7 @@ Figure 2 illustrates the complete authentication lifecycle described in Sections
 | media_type             | enum (IMAGE, VIDEO) | not null                                   |
 | like_count             | integer             | not null, default 0, check ≥ 0             |
 | comment_count          | integer             | not null, default 0, check ≥ 0             |
-| created_at, updated_at | timestamptz         | not null; index on (created_at DESC, id)   |
+| created_at, updated_at | timestamptz         | not_null; indexes on (author_id, created_at DESC, id) and (created_at DESC, id)   |
 
 #### comments
 
@@ -155,16 +155,16 @@ Figure 2 illustrates the complete authentication lifecycle described in Sections
 |------------|--------------|------------------------------------------|
 | id         | uuid         | PK                                       |
 | post_id    | uuid         | FK → posts, not null                     |
-| author_id  | uuid         | FK → users, not null                     |
+| author_id  | uuid         | FK → users, not null, indexed                     |
 | body       | varchar(500) | not null, check length ≥ 1               |
-| created_at | timestamptz  | not null; index on (post_id, created_at) |
+| created_at | timestamptz  | not null; index on (post_id, created_at DESC, id) |
 
 #### likes and saves (identical structure)
 
 | **Column** | **Type**    | **Constraints**                 |
 |------------|-------------|---------------------------------|
-| user_id    | uuid        | FK → users                      |
-| post_id    | uuid        | FK → posts                      |
+| user_id    | uuid        | FK → users, indexed on (user_id, created_at DESC, id)                      |
+| post_id    | uuid        | FK → posts, indexed                      |
 | created_at | timestamptz | not null                        |
 |            |             | Composite PK (user_id, post_id) |
 
@@ -174,7 +174,7 @@ The composite primary key makes duplicate likes or saves impossible at the datab
 
 | **Column**   | **Type**    | **Constraints**                                                            |
 |--------------|-------------|----------------------------------------------------------------------------|
-| follower_id  | uuid        | FK → users                                                                 |
+| follower_id  | uuid        | FK → users, indexed                                                                 |
 | following_id | uuid        | FK → users, indexed                                                        |
 | created_at   | timestamptz | not null                                                                   |
 |              |             | Composite PK (follower_id, following_id); check follower_id ≠ following_id |
@@ -190,7 +190,7 @@ The composite primary key makes duplicate likes or saves impossible at the datab
 | post_id      | uuid                         | FK → posts, nullable                                        |
 | comment_id   | uuid                         | FK → comments, nullable                                     |
 | is_read      | boolean                      | not null, default false                                     |
-| created_at   | timestamptz                  | not null; index on (recipient_id, is_read, created_at DESC) |
+| created_at   | timestamptz                  | not null; indexes on (recipient_id, created_at DESC, id), (recipient_id, is_read), (actor_id), (post_id), and (comment_id) |
 
 #### conversations (one-to-one only)
 
@@ -198,7 +198,7 @@ The composite primary key makes duplicate likes or saves impossible at the datab
 |-----------------|-------------|-------------------------------------------------------------|
 | id              | uuid        | PK                                                          |
 | user_a_id       | uuid        | FK → users, not null                                        |
-| user_b_id       | uuid        | FK → users, not null                                        |
+| user_b_id       | uuid        | FK → users, not null, indexed                                        |
 | last_message_at | timestamptz | nullable, indexed                                           |
 | created_at      | timestamptz | not null                                                    |
 |                 |             | Unique (user_a_id, user_b_id); check user_a_id \< user_b_id |
@@ -211,10 +211,10 @@ The ordering rule (user_a_id \< user_b_id) guarantees only one conversation can 
 |-----------------|---------------|--------------------------------------------------|
 | id              | uuid          | PK                                               |
 | conversation_id | uuid          | FK → conversations, not null                     |
-| sender_id       | uuid          | FK → users, not null                             |
+| sender_id       | uuid          | FK → users, not null, indexed                             |
 | body            | varchar(1000) | not null, check length ≥ 1                       |
 | read_at         | timestamptz   | nullable                                         |
-| created_at      | timestamptz   | not null; index on (conversation_id, created_at) |
+| created_at      | timestamptz   | not null; index on (conversation_id, created_at DESC, id) |
 
 ### 4.3 Entity Relationships
 
