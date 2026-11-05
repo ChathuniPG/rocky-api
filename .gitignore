@@ -17,6 +17,12 @@ lerna-debug.log*
 
 # OS
 .DS_Store
+._*
+Thumbs.db
+ehthumbs.db
+desktop.ini
+$RECYCLE.BIN/
+*~
 
 # Tests
 /coverage
@@ -38,12 +44,19 @@ lerna-debug.log*
 !.vscode/launch.json
 !.vscode/extensions.json
 
-# dotenv environment variable files
+# dotenv environment variable files (NFR-SEC-04: secrets never committed).
+# .env.example is the documented template and must stay tracked.
 .env
-.env.development.local
-.env.test.local
-.env.production.local
-.env.local
+.env.*
+!.env.example
+
+# Firebase / Google service account credentials (NFR-SEC-04)
+*firebase-adminsdk*.json
+service-account*.json
+serviceAccount*.json
+*-service-account.json
+*.pem
+*.p12
 
 # temp directory
 .temp

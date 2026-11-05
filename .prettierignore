@@ -8,3 +8,5 @@ package-lock.json
 docs
 CLAUDE.md
 AGENTS.md
+# Kept byte-for-byte as agreed for the team template.
+.github/pull_request_template.md
