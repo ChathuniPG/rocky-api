@@ -3,6 +3,8 @@ coverage
 node_modules
 package-lock.json
 *.tsbuildinfo
+# Generated Prisma client
+src/generated
 
 # Hand-authored documentation: keep the author's formatting.
 docs
