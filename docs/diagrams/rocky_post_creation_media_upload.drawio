@@ -1,0 +1,154 @@
+<mxfile host="app.diagrams.net" agent="ChatGPT">
+  <diagram id="rocky-upload-sequence" name="Post Creation with Media Upload">
+    <mxGraphModel dx="1471" dy="1546" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontFamily=Helvetica;fontSize=16;fontStyle=1;fontColor=#1A1428;" value="R.O.C.K.Y. - Post Creation with Media Upload" vertex="1">
+          <mxGeometry height="34" width="900" x="40" y="20" as="geometry" />
+        </mxCell>
+        <mxCell id="actor0" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F3F4F6;strokeColor=#6B7280;strokeWidth=1.5;fontColor=#1A1428;fontSize=13;fontFamily=Helvetica;align=center;verticalAlign=middle;" value="&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;br&gt;&lt;b&gt;User&lt;/b&gt;" vertex="1">
+          <mxGeometry height="90" width="96" x="52" y="70" as="geometry" />
+        </mxCell>
+        <mxCell id="life0" edge="1" parent="1" style="edgeStyle=none;html=1;strokeColor=#6B7280;strokeWidth=1.3;dashed=1;dashPattern=4 4;endArrow=none;startArrow=none;entryX=0.06;entryY=1.033;entryDx=0;entryDy=0;entryPerimeter=0;" target="altframe" value="">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="100" y="160" as="sourcePoint" />
+            <mxPoint x="100" y="970" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="head1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#EDE9FE;strokeColor=#7C3AED;strokeWidth=1.5;fontColor=#1A1428;fontSize=13;fontStyle=1;fontFamily=Helvetica;align=center;verticalAlign=middle;" value="Browser&lt;br&gt;(rocky-web)" vertex="1">
+          <mxGeometry height="56" width="170" x="245" y="102" as="geometry" />
+        </mxCell>
+        <mxCell id="life1" edge="1" parent="1" style="edgeStyle=none;html=1;strokeColor=#7C3AED;strokeWidth=1.3;dashed=1;dashPattern=4 4;endArrow=none;startArrow=none;entryX=0.302;entryY=1.009;entryDx=0;entryDy=0;entryPerimeter=0;" target="altframe" value="">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="340" y="160" as="sourcePoint" />
+            <mxPoint x="340" y="970" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="head2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#FFEDD5;strokeColor=#F97316;strokeWidth=1.5;fontColor=#1A1428;fontSize=13;fontStyle=1;fontFamily=Helvetica;align=center;verticalAlign=middle;" value="NestJS API&lt;br&gt;(rocky-api)" vertex="1">
+          <mxGeometry height="56" width="170" x="495" y="102" as="geometry" />
+        </mxCell>
+        <mxCell id="life2" edge="1" parent="1" style="edgeStyle=none;html=1;strokeColor=#F97316;strokeWidth=1.3;dashed=1;dashPattern=4 4;endArrow=none;startArrow=none;entryX=0.527;entryY=1;entryDx=0;entryDy=0;entryPerimeter=0;" target="altframe" value="">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="580" y="160" as="sourcePoint" />
+            <mxPoint x="580" y="970" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="head3" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#CCFBF1;strokeColor=#0D9488;strokeWidth=1.5;fontColor=#1A1428;fontSize=13;fontStyle=1;fontFamily=Helvetica;align=center;verticalAlign=middle;" value="Firebase&lt;br&gt;Storage" vertex="1">
+          <mxGeometry height="56" width="170" x="735" y="102" as="geometry" />
+        </mxCell>
+        <mxCell id="life3" edge="1" parent="1" style="edgeStyle=none;html=1;strokeColor=#0D9488;strokeWidth=1.3;dashed=1;dashPattern=4 4;endArrow=none;startArrow=none;entryX=0.75;entryY=1;entryDx=0;entryDy=0;" target="altframe" value="">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="820" y="160" as="sourcePoint" />
+            <mxPoint x="820" y="970" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="head4" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#DCFCE7;strokeColor=#16A34A;strokeWidth=1.5;fontColor=#1A1428;fontSize=13;fontStyle=1;fontFamily=Helvetica;align=center;verticalAlign=middle;" value="PostgreSQL" vertex="1">
+          <mxGeometry height="56" width="170" x="975" y="102" as="geometry" />
+        </mxCell>
+        <mxCell id="life4" edge="1" parent="1" style="edgeStyle=none;html=1;strokeColor=#16A34A;strokeWidth=1.3;dashed=1;dashPattern=4 4;endArrow=none;startArrow=none;entryX=0.986;entryY=0.989;entryDx=0;entryDy=0;entryPerimeter=0;" target="altframe" value="">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1060" y="160" as="sourcePoint" />
+            <mxPoint x="1060" y="970" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m1" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#374151;strokeWidth=1.5;endArrow=block;endFill=1;fontSize=11;fontFamily=Helvetica;fontColor=#1A1428;labelBackgroundColor=#FFFFFF;align=center;verticalAlign=middle;" value="1. Select file, write caption,&lt;br&gt;click Post">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="100" y="190" as="sourcePoint" />
+            <mxPoint x="340" y="190" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m2" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#374151;strokeWidth=1.5;endArrow=block;endFill=1;fontSize=11;fontFamily=Helvetica;fontColor=#1A1428;labelBackgroundColor=#FFFFFF;align=center;verticalAlign=middle;" value="2. POST /api/v1/uploads&lt;br&gt;multipart: file, purpose=post">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="340" y="300" as="sourcePoint" />
+            <mxPoint x="580" y="300" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m3" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#374151;strokeWidth=1.5;endArrow=block;endFill=1;fontSize=11;fontFamily=Helvetica;fontColor=#1A1428;labelBackgroundColor=#FFFFFF;align=center;verticalAlign=middle;" value="3. Upload to&lt;br&gt;posts/{userId}/{uuid}">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="580" y="420" as="sourcePoint" />
+            <mxPoint x="820" y="420" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m4" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#6B7280;strokeWidth=1.5;dashed=1;endArrow=open;endFill=0;fontSize=11;fontFamily=Helvetica;fontColor=#1A1428;labelBackgroundColor=#FFFFFF;align=center;verticalAlign=middle;" value="4. Stored + download URL">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="820" y="500" as="sourcePoint" />
+            <mxPoint x="580" y="500" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m5" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#6B7280;strokeWidth=1.5;dashed=1;endArrow=open;endFill=0;fontSize=11;fontFamily=Helvetica;fontColor=#1A1428;labelBackgroundColor=#FFFFFF;align=center;verticalAlign=middle;" value="5. 201 Created&lt;br&gt;{url, path, mediaType}">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="580" y="570" as="sourcePoint" />
+            <mxPoint x="340" y="570" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m6" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#374151;strokeWidth=1.5;endArrow=block;endFill=1;fontSize=11;fontFamily=Helvetica;fontColor=#1A1428;labelBackgroundColor=#FFFFFF;align=center;verticalAlign=middle;" value="6. POST /api/v1/posts&lt;br&gt;{caption, mediaPath}">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="340" y="650" as="sourcePoint" />
+            <mxPoint x="580" y="650" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m7" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#374151;strokeWidth=1.5;endArrow=block;endFill=1;fontSize=11;fontFamily=Helvetica;fontColor=#1A1428;labelBackgroundColor=#FFFFFF;align=center;verticalAlign=middle;" value="7. INSERT post">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="580" y="770" as="sourcePoint" />
+            <mxPoint x="1060" y="770" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m8" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#6B7280;strokeWidth=1.5;dashed=1;endArrow=open;endFill=0;fontSize=11;fontFamily=Helvetica;fontColor=#1A1428;labelBackgroundColor=#FFFFFF;align=center;verticalAlign=middle;" value="8. post row">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1060" y="830" as="sourcePoint" />
+            <mxPoint x="580" y="830" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m9" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#6B7280;strokeWidth=1.5;dashed=1;endArrow=open;endFill=0;fontSize=11;fontFamily=Helvetica;fontColor=#1A1428;labelBackgroundColor=#FFFFFF;align=center;verticalAlign=middle;" value="9. 201 Created {post}">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="580" y="890" as="sourcePoint" />
+            <mxPoint x="340" y="890" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m10" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#6B7280;strokeWidth=1.5;dashed=1;endArrow=open;endFill=0;fontSize=11;fontFamily=Helvetica;fontColor=#1A1428;labelBackgroundColor=#FFFFFF;align=center;verticalAlign=middle;" value="10. Toast &quot;Posted!&quot; +&lt;br&gt;feed refreshes">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="340" y="950" as="sourcePoint" />
+            <mxPoint x="100" y="950" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="note1" parent="1" style="shape=note;whiteSpace=wrap;html=1;size=12;fillColor=#FFFBEB;strokeColor=#D97706;strokeWidth=1.2;fontSize=11;fontFamily=Helvetica;align=left;spacingLeft=6;fontColor=#1A1428;" value="Client-side check:&lt;br&gt;type &amp;amp; size" vertex="1">
+          <mxGeometry height="62" width="150" x="360" y="190" as="geometry" />
+        </mxCell>
+        <mxCell id="note2" parent="1" style="shape=note;whiteSpace=wrap;html=1;size=12;fillColor=#FFFBEB;strokeColor=#D97706;strokeWidth=1.2;fontSize=11;fontFamily=Helvetica;align=left;spacingLeft=6;fontColor=#1A1428;" value="Guard + validate&lt;br&gt;MIME type &amp;amp; size" vertex="1">
+          <mxGeometry height="64" width="165" x="618" y="330" as="geometry" />
+        </mxCell>
+        <mxCell id="note3" parent="1" style="shape=note;whiteSpace=wrap;html=1;size=12;fillColor=#FFFBEB;strokeColor=#D97706;strokeWidth=1.2;fontSize=11;fontFamily=Helvetica;align=left;spacingLeft=6;fontColor=#1A1428;" value="Verify mediaPath&lt;br&gt;belongs to user" vertex="1">
+          <mxGeometry height="64" width="165" x="600" y="670" as="geometry" />
+        </mxCell>
+        <mxCell id="altframe" parent="1" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=none;strokeColor=#9CA3AF;strokeWidth=1.5;container=1;" value="" vertex="1">
+          <mxGeometry height="92" width="1040" x="35" y="985" as="geometry" />
+        </mxCell>
+        <mxCell id="altlabel" parent="1" style="text;html=1;strokeColor=none;fillColor=#FFFFFF;align=left;verticalAlign=middle;fontFamily=Helvetica;fontSize=12;fontStyle=1;fontColor=#4B5563;" value="alt [file invalid or upload fails]" vertex="1">
+          <mxGeometry height="24" width="340" x="50" y="987" as="geometry" />
+        </mxCell>
+        <mxCell id="err1" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#6B7280;strokeWidth=1.5;dashed=1;endArrow=open;endFill=0;fontSize=11;fontFamily=Helvetica;fontColor=#1A1428;labelBackgroundColor=#FFFFFF;align=center;verticalAlign=middle;" value="400 / 413 {message}">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="580" y="1025" as="sourcePoint" />
+            <mxPoint x="340" y="1025" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="err2" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#6B7280;strokeWidth=1.5;dashed=1;endArrow=open;endFill=0;fontSize=11;fontFamily=Helvetica;fontColor=#1A1428;labelBackgroundColor=#FFFFFF;align=center;verticalAlign=middle;" value="Error toast">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="340" y="1055" as="sourcePoint" />
+            <mxPoint x="100" y="1055" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="designnote" parent="1" style="shape=note;whiteSpace=wrap;html=1;size=12;fillColor=#FFFBEB;strokeColor=#D97706;strokeWidth=1.2;fontSize=11;fontFamily=Helvetica;align=left;spacingLeft=6;fontColor=#1A1428;" value="Two-step upload (ADR-007).&lt;br&gt;Orphaned files from abandoned uploads&lt;br&gt;are handled by a future cleanup job." vertex="1">
+          <mxGeometry height="112" width="220" x="1090" y="965" as="geometry" />
+        </mxCell>
+        <mxCell id="legend" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;fontFamily=Helvetica;fontSize=10;fontColor=#4B5563;" value="&lt;b&gt;Legend&lt;/b&gt;&lt;br&gt;&lt;font color=&#39;#7C3AED&#39;&gt;■&lt;/font&gt; Frontend&amp;nbsp;&amp;nbsp; &lt;font color=&#39;#F97316&#39;&gt;■&lt;/font&gt; Backend&lt;br&gt;&lt;font color=&#39;#6B7280&#39;&gt;■&lt;/font&gt; User / infrastructure&amp;nbsp;&amp;nbsp; &lt;font color=&#39;#16A34A&#39;&gt;■&lt;/font&gt; Database&lt;br&gt;&lt;font color=&#39;#0D9488&#39;&gt;■&lt;/font&gt; External service&amp;nbsp;&amp;nbsp; &lt;font color=&#39;#D97706&#39;&gt;■&lt;/font&gt; Notes" vertex="1">
+          <mxGeometry height="1" width="180" x="1190" y="36.5" as="geometry" />
+        </mxCell>
+        <mxCell id="-baeW5Mcw1bSrWNQEXoN-1" parent="1" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;outlineConnect=0;labelPerimeter=1;" value="" vertex="1">
+          <mxGeometry height="48" width="25" x="87.5" y="80" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
