@@ -1,1 +1,19 @@
+# Normalise all text files to LF in the repository and working tree,
+# so Windows and Linux (EC2) checkouts are identical.
 * text=auto eol=lf
+
+# Draw.io diagrams are XML text.
+*.drawio text eol=lf
+
+# Binary files: never normalise line endings or diff as text.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.webp binary
+*.ico  binary
+*.mp4  binary
+*.webm binary
+*.pdf  binary
+*.woff binary
+*.woff2 binary

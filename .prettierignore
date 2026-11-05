@@ -1,0 +1,10 @@
+dist
+coverage
+node_modules
+package-lock.json
+*.tsbuildinfo
+
+# Hand-authored documentation: keep the author's formatting.
+docs
+CLAUDE.md
+AGENTS.md
