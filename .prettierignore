@@ -7,6 +7,5 @@ package-lock.json
 # Hand-authored documentation: keep the author's formatting.
 docs
 CLAUDE.md
-AGENTS.md
 # Kept byte-for-byte as agreed for the team template.
 .github/pull_request_template.md
