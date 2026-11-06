@@ -1,7 +1,8 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsEmail, IsString, Length, Matches, MaxLength, MinLength } from 'class-validator';
+import { IsEmail, IsNotIn, IsString, Length, Matches, MaxLength, MinLength } from 'class-validator';
 import { trim, trimAndLowercase } from '../../../common/utils/string-transforms';
+import { RESERVED_USERNAME, RESERVED_USERNAMES } from '../../users/users.constants';
 
 /** Upper bound for passwords: blocks oversized payloads; far above any real password. */
 export const PASSWORD_MAX_LENGTH = 128;
@@ -45,7 +46,9 @@ export class SignupDto {
     maxLength: 30,
     pattern: '^[a-z0-9_.]+$',
     example: 'alice',
-    description: 'Trimmed and lowercased before validation.',
+    description:
+      'Trimmed and lowercased before validation. Reserved names that collide with routes ' +
+      '(e.g. me, search, admin, api, settings) are rejected.',
   })
   @Transform(trimAndLowercase)
   @IsString()
@@ -53,6 +56,8 @@ export class SignupDto {
   @Matches(/^[a-z0-9_.]+$/, {
     message: 'username may only contain lowercase letters, numbers, underscores and periods',
   })
+  // Runs after the lowercase transform, so "ME" is rejected as well.
+  @IsNotIn(RESERVED_USERNAMES, { message: RESERVED_USERNAME })
   username: string;
 
   @ApiProperty({ minLength: 1, maxLength: 50, example: 'Alice', description: 'Trimmed.' })

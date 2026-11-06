@@ -16,6 +16,7 @@ export function buildUser(overrides: Partial<User> = {}): User {
     displayName: 'Alice',
     bio: null,
     avatarUrl: null,
+    avatarPath: null,
     notificationsEnabled: true,
     language: 'en',
     createdAt: new Date('2026-11-01T10:00:00Z'),

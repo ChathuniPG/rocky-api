@@ -153,13 +153,94 @@ export function toCursorPage<Row extends CursorPosition, Item>(
   limit: number,
   toItem: (row: Row) => Item,
 ): CursorPage<Item> {
+  return toPage(rows, limit, toItem, encodeCursor);
+}
+
+/*
+ * Single-key cursors, for lists ordered by one unique, immutable string column instead of
+ * (created_at, id), e.g. user search ordered by username. The key alone identifies the
+ * position, so the condition is simply `key > cursor` (ascending) and no tie-breaker is
+ * needed. Same opaque base64url JSON format, with a different payload: `{"k":"<key>"}`.
+ */
+
+/** JSON payload inside a single-key cursor. */
+interface KeyCursorPayload {
+  k: string;
+}
+
+/**
+ * Encodes the sort key of a page's last row as an opaque cursor.
+ *
+ * @param key - The unique sort key, e.g. a username.
+ * @returns base64url of `{"k":"<key>"}`.
+ */
+export function encodeKeyCursor(key: string): string {
+  const payload: KeyCursorPayload = { k: key };
+  return Buffer.from(JSON.stringify(payload)).toString('base64url');
+}
+
+/**
+ * Decodes a single-key cursor received from a client. The key is untrusted input, so the
+ * caller supplies the rule a real key satisfies (e.g. the username pattern).
+ *
+ * @param cursor - The `cursor` query parameter, or `undefined` for the first page.
+ * @param isValidKey - Returns `true` for a key this list can contain.
+ * @returns The key to continue after, or `undefined` for the first page.
+ * @throws {BadRequestException} If the cursor is not one this API issued.
+ */
+export function decodeKeyCursor(
+  cursor: string | undefined,
+  isValidKey: (key: string) => boolean,
+): string | undefined {
+  if (cursor === undefined) {
+    return undefined;
+  }
+  if (!BASE64URL_PATTERN.test(cursor)) {
+    throw invalidCursor();
+  }
+  const payload = parseJson(Buffer.from(cursor, 'base64url').toString('utf8'));
+  if (!isKeyCursorPayload(payload) || !isValidKey(payload.k)) {
+    throw invalidCursor();
+  }
+  return payload.k;
+}
+
+/**
+ * Like {@link toCursorPage}, for a list paginated with a single-key cursor.
+ *
+ * @param rows - Rows in key order, at most `limit + 1`.
+ * @param limit - The requested page size.
+ * @param keyOf - Reads the sort key of a row.
+ * @param toItem - Maps a row to its response item.
+ * @returns The first `limit` items and the cursor of the last one if more rows exist.
+ */
+export function toKeyCursorPage<Row, Item>(
+  rows: readonly Row[],
+  limit: number,
+  keyOf: (row: Row) => string,
+  toItem: (row: Row) => Item,
+): CursorPage<Item> {
+  return toPage(rows, limit, toItem, (row) => encodeKeyCursor(keyOf(row)));
+}
+
+/** Shared by both cursor kinds: drops the extra row and encodes the last returned one. */
+function toPage<Row, Item>(
+  rows: readonly Row[],
+  limit: number,
+  toItem: (row: Row) => Item,
+  encodeLast: (row: Row) => string,
+): CursorPage<Item> {
   const pageRows = rows.slice(0, limit);
   const hasMore = rows.length > limit;
   const lastRow = pageRows.at(-1);
   return {
     items: pageRows.map((row) => toItem(row)),
-    nextCursor: hasMore && lastRow ? encodeCursor(lastRow) : null,
+    nextCursor: hasMore && lastRow !== undefined ? encodeLast(lastRow) : null,
   };
+}
+
+function isKeyCursorPayload(value: unknown): value is KeyCursorPayload {
+  return typeof value === 'object' && value !== null && 'k' in value && typeof value.k === 'string';
 }
 
 function parseJson(text: string): unknown {
