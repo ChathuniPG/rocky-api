@@ -4,7 +4,7 @@
 |-------------|-------------|-------------------|------------|
 | 0.1         | 04 Nov 2026 | Chathuni Gunasena | Draft      |
 | 0.2         | 05 Nov 2026 | Chathuni Gunasena | Align index definitions with query ordering.      |
-| 0.3         | 06 Nov 2026 | Chathuni Gunasena | Added ADR-011 (Service account loaded from file path).      |
+| 0.3         | 06 Nov 2026 | Chathuni Gunasena | Added ADR-011 (Service account loaded from file path), Added ADR-012 (In-memory rate-limit storage).      |
 
 ## 1. Purpose
 
@@ -344,7 +344,7 @@ Figure 4 shows how the Upload and Posts endpoints work together to create a post
 | MessagesModule      | Conversations and messages.                                                        |
 | HealthModule        | Health check.                                                                      |
 
-Shared code lives in a common folder: the auth guard, the @CurrentUser() decorator, the global exception filter, pagination helpers, and the logging interceptor.
+Shared code lives in a common folder: the auth guard, the @CurrentUser() decorator, the global exception filter, pagination helpers, and the request-logging middleware. Request logging is a middleware rather than an interceptor because interceptors run after guards and would miss 401, 429 and 404 responses.
 
 ## 7. Frontend Design (rocky-web)
 
@@ -492,3 +492,11 @@ Figure 5 summarizes the route structure and how authentication controls access.
 - **Decision:** `.env` stores only the path to the JSON file (`FIREBASE_SERVICE_ACCOUNT_PATH`). Locally, the file lives outside the repository. On EC2, it lives in a directory readable only by the application user (permissions 600).
 
 - **Consequences:** No key-formatting issues, and the secret never appears in environment dumps. The file must be provisioned separately on each server, which is documented in the deployment steps. The app validates the file at startup.
+
+### ADR-012: In-memory rate-limit storage
+
+- **Context:** NFR-SEC-05 requires rate limiting, with stricter limits on authentication endpoints. @nestjs/throttler keeps its counters in memory by default; a shared store such as Redis would add a service to install, secure and monitor on the EC2 instance (ADR-009).
+
+- **Decision:** Use the default in-memory storage, keyed by client IP. Limits are code constants: 100 requests per minute globally and 10 per minute on sign-up, login and refresh. Trust proxy is set to loopback only, so the client IP comes from Nginx's X-Forwarded-For header and cannot be spoofed by a client connecting directly.
+
+- **Consequences:** No extra infrastructure, and the limits are correct while the API runs as a single process (one PM2 instance, NFR-OPS-01). Counters reset when the process restarts, and they would not be shared if the API ran in PM2 cluster mode or on several instances: each process would allow the full limit. Scaling out requires switching to a shared store (e.g. a Redis-backed throttler storage).
