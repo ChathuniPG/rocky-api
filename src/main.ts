@@ -18,9 +18,15 @@ async function bootstrap(): Promise<void> {
   // `true` = the config was validated, so get() returns `number` instead of `number | undefined`.
   const config = app.get(ConfigService<EnvironmentVariables, true>);
   const port = config.get('PORT', { infer: true });
+  const host = config.get('HOST', { infer: true });
 
-  await app.listen(port);
-  logger.log(`Listening on http://localhost:${port}/${API_PREFIX}`);
+  await app.listen(port, host);
+  logger.log(`Listening on http://${formatHostForUrl(host)}:${port}/${API_PREFIX}`);
+}
+
+/** IPv6 addresses need square brackets in a URL (http://[::1]:4000); IPv4 does not. */
+function formatHostForUrl(host: string): string {
+  return host.includes(':') ? `[${host}]` : host;
 }
 
 bootstrap().catch((error: unknown) => {
