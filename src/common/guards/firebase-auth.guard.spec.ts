@@ -1,6 +1,7 @@
 import { UnauthorizedException } from '@nestjs/common';
 import { ExecutionContextHost } from '@nestjs/core/helpers/execution-context-host';
 import { Test } from '@nestjs/testing';
+import { buildUser } from '../../../test/fixtures/user.fixture';
 import { FirebaseAuthService } from '../../firebase/firebase-auth.service';
 import { TokenRevokedError } from '../../firebase/firebase.errors';
 import type { User } from '../../generated/prisma/client';
@@ -11,19 +12,7 @@ import { FirebaseAuthGuard } from './firebase-auth.guard';
 const ID_TOKEN = 'eyJhbGciOiJSUzI1NiJ9.fake-id-token.fake-signature';
 const FIREBASE_UID = 'firebase-uid-123';
 
-const user: User = {
-  id: '6f1c1b1e-8d5a-4a4e-9a51-2b3c4d5e6f70',
-  firebaseUid: FIREBASE_UID,
-  email: 'alice@example.com',
-  username: 'alice',
-  displayName: 'Alice',
-  bio: null,
-  avatarUrl: null,
-  notificationsEnabled: true,
-  language: 'en',
-  createdAt: new Date('2026-11-01T10:00:00Z'),
-  updatedAt: new Date('2026-11-01T10:00:00Z'),
-};
+const user = buildUser({ firebaseUid: FIREBASE_UID });
 
 // Controllers and handlers used only as metadata targets for the Reflector. `this: void`
 // tells TypeScript the handlers never use `this`, so passing them around is safe.
