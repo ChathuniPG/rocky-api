@@ -24,9 +24,12 @@ import { PaginationQueryDto } from '../../common/pagination/pagination-query.dto
 import { ApiErrorResponses } from '../../common/swagger/api-error-responses.decorator';
 import type { User } from '../../generated/prisma/client';
 import { CreatePostDto } from './dto/create-post.dto';
+import { LikeStateDto } from './dto/like-state.dto';
 import { PostIdParamDto } from './dto/post-id-param.dto';
 import { PostPageDto, PostResponseDto } from './dto/post-response.dto';
+import { SaveStateDto } from './dto/save-state.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
+import { PostEngagementService } from './post-engagement.service';
 import { PostsService } from './posts.service';
 
 /** Errors every post endpoint can return: auth, rate limit and backing-service outages. */
@@ -51,7 +54,10 @@ const NOT_OWNER = {
 @ApiCookieAuth(ID_TOKEN_COOKIE)
 @Controller('posts')
 export class PostsController {
-  constructor(private readonly posts: PostsService) {}
+  constructor(
+    private readonly posts: PostsService,
+    private readonly engagement: PostEngagementService,
+  ) {}
 
   /** Creates a post from a previously uploaded media path (FR-POST-01, ADR-007). */
   @Post()
@@ -133,5 +139,56 @@ export class PostsController {
   @ApiErrorResponses(INVALID_ID, NOT_OWNER, NOT_FOUND, ...COMMON_ERRORS)
   delete(@Param() params: PostIdParamDto, @CurrentUser() user: User): Promise<void> {
     return this.posts.delete(user.id, params.id);
+  }
+
+  /** Likes a post (FR-FEED-03). Idempotent: liking again changes nothing. */
+  @Post(':id/like')
+  // 200, not 201: a repeated call creates nothing, and both calls return the same state.
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Like a post',
+    description: 'Idempotent: liking a post you already like returns the same state.',
+  })
+  @ApiOkResponse({ type: LikeStateDto, description: 'The post is liked.' })
+  @ApiErrorResponses(INVALID_ID, HttpStatus.FORBIDDEN, NOT_FOUND, ...COMMON_ERRORS)
+  like(@Param() params: PostIdParamDto, @CurrentUser() user: User): Promise<LikeStateDto> {
+    return this.engagement.like(user.id, params.id);
+  }
+
+  /** Removes a like (FR-FEED-03). Idempotent: unliking a post you don't like is a no-op. */
+  @Delete(':id/like')
+  @ApiOperation({
+    summary: 'Unlike a post',
+    description: 'Idempotent: unliking a post you do not like returns the same state.',
+  })
+  @ApiOkResponse({ type: LikeStateDto, description: 'The post is not liked.' })
+  @ApiErrorResponses(INVALID_ID, HttpStatus.FORBIDDEN, NOT_FOUND, ...COMMON_ERRORS)
+  unlike(@Param() params: PostIdParamDto, @CurrentUser() user: User): Promise<LikeStateDto> {
+    return this.engagement.unlike(user.id, params.id);
+  }
+
+  /** Saves a post (FR-FEED-04). Idempotent. */
+  @Post(':id/save')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Save a post',
+    description: 'Idempotent: saving a post you already saved returns the same state.',
+  })
+  @ApiOkResponse({ type: SaveStateDto, description: 'The post is saved.' })
+  @ApiErrorResponses(INVALID_ID, HttpStatus.FORBIDDEN, NOT_FOUND, ...COMMON_ERRORS)
+  save(@Param() params: PostIdParamDto, @CurrentUser() user: User): Promise<SaveStateDto> {
+    return this.engagement.save(user.id, params.id);
+  }
+
+  /** Removes a save (FR-FEED-04). Idempotent. */
+  @Delete(':id/save')
+  @ApiOperation({
+    summary: 'Unsave a post',
+    description: 'Idempotent: unsaving a post you have not saved returns the same state.',
+  })
+  @ApiOkResponse({ type: SaveStateDto, description: 'The post is not saved.' })
+  @ApiErrorResponses(INVALID_ID, HttpStatus.FORBIDDEN, NOT_FOUND, ...COMMON_ERRORS)
+  unsave(@Param() params: PostIdParamDto, @CurrentUser() user: User): Promise<SaveStateDto> {
+    return this.engagement.unsave(user.id, params.id);
   }
 }

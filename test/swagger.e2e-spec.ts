@@ -74,6 +74,8 @@ describe('Swagger (e2e)', () => {
       '/api/v1/posts',
       '/api/v1/posts/feed',
       '/api/v1/posts/{id}',
+      '/api/v1/posts/{id}/like',
+      '/api/v1/posts/{id}/save',
       '/api/v1/uploads',
     ]);
   });
