@@ -4,7 +4,17 @@
 import 'reflect-metadata';
 import { plainToInstance } from 'class-transformer';
 import type { ValidationError } from 'class-validator';
-import { IsEnum, IsInt, IsUrl, Max, Min, validateSync } from 'class-validator';
+import {
+  IsEnum,
+  IsInt,
+  IsNotEmpty,
+  IsString,
+  IsUrl,
+  Matches,
+  Max,
+  Min,
+  validateSync,
+} from 'class-validator';
 
 /** Runtime environments the API supports. */
 export enum NodeEnv {
@@ -38,6 +48,36 @@ export class EnvironmentVariables {
     { message: 'DATABASE_URL must be a postgres:// or postgresql:// connection URL' },
   )
   DATABASE_URL: string;
+
+  // ADR-011: the service account key lives outside the repository and only its path is
+  // configured here, never its contents. Whether the file exists and is a valid key is
+  // checked when FirebaseModule starts (src/firebase/service-account.ts), so this schema
+  // stays free of file-system access.
+  @IsString()
+  @IsNotEmpty({
+    message: 'FIREBASE_SERVICE_ACCOUNT_PATH must point to the service account JSON file',
+  })
+  FIREBASE_SERVICE_ACCOUNT_PATH: string;
+
+  // Firebase / Google Cloud project ID rules: 6-30 characters, lowercase letters, digits
+  // and hyphens, starting with a letter and not ending with a hyphen.
+  @Matches(/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/, {
+    message: 'FIREBASE_PROJECT_ID must be a valid Firebase project ID (e.g. rocky-app-1234)',
+  })
+  FIREBASE_PROJECT_ID: string;
+
+  // A bare bucket name (e.g. rocky-app.firebasestorage.app). The Admin SDK rejects a
+  // gs:// prefix or a URL, so they are rejected here with a clearer message.
+  @Matches(/^[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]$/, {
+    message:
+      'FIREBASE_STORAGE_BUCKET must be a bare bucket name such as my-project.firebasestorage.app (no gs:// prefix)',
+  })
+  FIREBASE_STORAGE_BUCKET: string;
+
+  // ADR-002: needed for the Firebase Auth REST API (sign-in and refresh). Treated as a
+  // secret: it is never logged, and the error message below never contains the value.
+  @Matches(/^\S+$/, { message: 'FIREBASE_WEB_API_KEY must be a non-empty value without spaces' })
+  FIREBASE_WEB_API_KEY: string;
 }
 
 /**

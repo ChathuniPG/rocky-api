@@ -39,6 +39,7 @@
         "src/**/*.filter.ts",
         "src/**/*.strategy.ts",
         "src/**/*.provider.ts",
+        "src/**/*.client.ts",
         "src/main.ts"
       ],
       "rules": {

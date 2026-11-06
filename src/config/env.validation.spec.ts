@@ -1,8 +1,22 @@
 import { NodeEnv, validateEnv } from './env.validation';
 
 // The minimum configuration the API accepts: every required variable, nothing else.
+// All values are fake; no test touches a real Firebase project.
 const DATABASE_URL = 'postgresql://rocky:s3cret-pw@127.0.0.1:5432/rocky';
-const required = { DATABASE_URL };
+const FIREBASE_WEB_API_KEY = 'AIzaFakeKeyForUnitTests0000000000000000';
+const required = {
+  DATABASE_URL,
+  FIREBASE_SERVICE_ACCOUNT_PATH: 'D:/secrets/fake-service-account.json',
+  FIREBASE_PROJECT_ID: 'rocky-test-1234',
+  FIREBASE_STORAGE_BUCKET: 'rocky-test-1234.firebasestorage.app',
+  FIREBASE_WEB_API_KEY,
+};
+
+/** Returns the required configuration without one variable, to test that it is required. */
+function without(key: keyof typeof required): Record<string, string> {
+  const { [key]: _omitted, ...rest } = required;
+  return rest;
+}
 
 describe('validateEnv', () => {
   it('applies defaults when only the required variables are set', () => {
@@ -54,7 +68,7 @@ describe('validateEnv', () => {
 
   describe('DATABASE_URL', () => {
     it('is required', () => {
-      expect(() => validateEnv({})).toThrow(/DATABASE_URL/);
+      expect(() => validateEnv(without('DATABASE_URL'))).toThrow(/DATABASE_URL/);
     });
 
     it.each([
@@ -62,23 +76,114 @@ describe('validateEnv', () => {
       'postgresql://rocky:pw@127.0.0.1:5432/rocky?schema=public',
       'postgresql://rocky:pw@db.example.com:5432/rocky',
     ])('accepts %s', (url) => {
-      expect(validateEnv({ DATABASE_URL: url }).DATABASE_URL).toBe(url);
+      expect(validateEnv({ ...required, DATABASE_URL: url }).DATABASE_URL).toBe(url);
     });
 
     it.each(['mysql://rocky:pw@localhost:3306/rocky', 'not-a-url', 'localhost:5432/rocky', ''])(
       'rejects %p',
       (url) => {
-        expect(() => validateEnv({ DATABASE_URL: url })).toThrow(
+        expect(() => validateEnv({ ...required, DATABASE_URL: url })).toThrow(
           /DATABASE_URL must be a postgres:\/\/ or postgresql:\/\/ connection URL/,
         );
       },
     );
 
     it('never includes the password in the error message', () => {
-      const env = { DATABASE_URL: 'mysql://rocky:s3cret-pw@localhost:3306/rocky' };
+      const env = { ...required, DATABASE_URL: 'mysql://rocky:s3cret-pw@localhost:3306/rocky' };
 
       expect(() => validateEnv(env)).toThrow(/DATABASE_URL/);
       expect(() => validateEnv(env)).not.toThrow(/s3cret-pw/);
+    });
+  });
+
+  describe('FIREBASE_SERVICE_ACCOUNT_PATH', () => {
+    it('is required', () => {
+      expect(() => validateEnv(without('FIREBASE_SERVICE_ACCOUNT_PATH'))).toThrow(
+        /FIREBASE_SERVICE_ACCOUNT_PATH/,
+      );
+    });
+
+    it('rejects an empty value', () => {
+      expect(() => validateEnv({ ...required, FIREBASE_SERVICE_ACCOUNT_PATH: '' })).toThrow(
+        /FIREBASE_SERVICE_ACCOUNT_PATH must point to the service account JSON file/,
+      );
+    });
+
+    it.each(['D:/AssessmentProjects/ROCKY/secrets/rocky-sa.json', '/etc/rocky/secrets/sa.json'])(
+      'accepts %s',
+      (path) => {
+        const env = validateEnv({ ...required, FIREBASE_SERVICE_ACCOUNT_PATH: path });
+
+        expect(env.FIREBASE_SERVICE_ACCOUNT_PATH).toBe(path);
+      },
+    );
+  });
+
+  describe('FIREBASE_PROJECT_ID', () => {
+    it('is required', () => {
+      expect(() => validateEnv(without('FIREBASE_PROJECT_ID'))).toThrow(/FIREBASE_PROJECT_ID/);
+    });
+
+    it.each(['rocky-app', 'rocky-test-1234', 'abcdef'])('accepts %s', (projectId) => {
+      expect(validateEnv({ ...required, FIREBASE_PROJECT_ID: projectId }).FIREBASE_PROJECT_ID).toBe(
+        projectId,
+      );
+    });
+
+    it.each(['Rocky-App', '1rocky-app', 'rocky-app-', 'short', 'rocky_app', ''])(
+      'rejects %p',
+      (projectId) => {
+        expect(() => validateEnv({ ...required, FIREBASE_PROJECT_ID: projectId })).toThrow(
+          /FIREBASE_PROJECT_ID must be a valid Firebase project ID/,
+        );
+      },
+    );
+  });
+
+  describe('FIREBASE_STORAGE_BUCKET', () => {
+    it('is required', () => {
+      expect(() => validateEnv(without('FIREBASE_STORAGE_BUCKET'))).toThrow(
+        /FIREBASE_STORAGE_BUCKET/,
+      );
+    });
+
+    it.each(['rocky-test-1234.firebasestorage.app', 'rocky-test-1234.appspot.com'])(
+      'accepts %s',
+      (bucket) => {
+        const env = validateEnv({ ...required, FIREBASE_STORAGE_BUCKET: bucket });
+
+        expect(env.FIREBASE_STORAGE_BUCKET).toBe(bucket);
+      },
+    );
+
+    it.each([
+      'gs://rocky-test-1234.firebasestorage.app',
+      'https://storage.googleapis.com/rocky-test-1234',
+      'Rocky-Bucket',
+      '',
+    ])('rejects %p', (bucket) => {
+      expect(() => validateEnv({ ...required, FIREBASE_STORAGE_BUCKET: bucket })).toThrow(
+        /FIREBASE_STORAGE_BUCKET must be a bare bucket name/,
+      );
+    });
+  });
+
+  describe('FIREBASE_WEB_API_KEY', () => {
+    it('is required', () => {
+      expect(() => validateEnv(without('FIREBASE_WEB_API_KEY'))).toThrow(/FIREBASE_WEB_API_KEY/);
+    });
+
+    it.each(['', 'has a space', ' AIzaLeadingSpace'])('rejects %p', (key) => {
+      expect(() => validateEnv({ ...required, FIREBASE_WEB_API_KEY: key })).toThrow(
+        /FIREBASE_WEB_API_KEY must be a non-empty value without spaces/,
+      );
+    });
+
+    it('never includes the key in the error message', () => {
+      const env = { ...required, FIREBASE_WEB_API_KEY: 'AIza secret key' };
+
+      expect(() => validateEnv(env)).toThrow(/FIREBASE_WEB_API_KEY/);
+      expect(() => validateEnv(env)).not.toThrow(/AIza secret key/);
     });
   });
 });
