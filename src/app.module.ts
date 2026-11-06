@@ -12,6 +12,7 @@ import { validateEnv } from './config/env.validation';
 import { FirebaseModule } from './firebase/firebase.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { HealthModule } from './modules/health/health.module';
+import { PostsModule } from './modules/posts/posts.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
 import { PrismaModule } from './prisma/prisma.module';
 
@@ -31,6 +32,7 @@ import { PrismaModule } from './prisma/prisma.module';
     AuthModule,
     HealthModule,
     UploadsModule,
+    PostsModule,
   ],
   providers: [
     // Global guards run in the order listed. The throttler comes first, so a flood of

@@ -5,6 +5,7 @@
 | 0.1         | 04 Nov 2026 | Chathuni Gunasena | Draft      |
 | 0.2         | 05 Nov 2026 | Chathuni Gunasena | Align index definitions with query ordering.      |
 | 0.3         | 06 Nov 2026 | Chathuni Gunasena | Added ADR-011 (Service account loaded from file path), Added ADR-012 (In-memory rate-limit storage).      |
+| 0.4         | 06 Nov 2026 | Chathuni Gunasena | Millisecond created_at precision on cursor-paginated tables; posts.media_path unique.      |
 
 ## 1. Purpose
 
@@ -116,6 +117,8 @@ Figure 2 illustrates the complete authentication lifecycle described in Sections
 
 - **Timestamps:** all tables have created_at (timestamptz, default now()). Mutable tables also have updated_at.
 
+- **Timestamp precision:** cursor-paginated tables (posts, comments, likes, saves, notifications, messages) store created_at as timestamptz(3), millisecond precision. The pagination cursor is built from a JavaScript Date, which only holds milliseconds; with PostgreSQL's default microsecond precision, rows created in the same millisecond as the cursor row would match neither `created_at < cursor` nor `created_at = cursor` and be skipped (ADR-005). Other timestamps keep microsecond precision.
+
 - **Naming:** snake_case for tables and columns in the database, mapped to camelCase in code.
 
 - **Deletes:** relationships use ON DELETE CASCADE unless stated otherwise.
@@ -145,7 +148,7 @@ Figure 2 illustrates the complete authentication lifecycle described in Sections
 | author_id              | uuid                | FK → users, not null, indexed              |
 | caption                | varchar(2200)       | not null, default ‘’                       |
 | media_url              | text                | not null                                   |
-| media_path             | text                | not null (Storage path, used for deletion) |
+| media_path             | text                | unique, not null (Storage path, used for deletion; one upload backs at most one post) |
 | media_type             | enum (IMAGE, VIDEO) | not null                                   |
 | like_count             | integer             | not null, default 0, check ≥ 0             |
 | comment_count          | integer             | not null, default 0, check ≥ 0             |

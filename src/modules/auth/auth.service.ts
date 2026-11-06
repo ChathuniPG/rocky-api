@@ -10,7 +10,8 @@ import {
   FirebaseDomainError,
   type FirebaseErrorCode,
 } from '../../firebase/firebase.errors';
-import { Prisma, type User } from '../../generated/prisma/client';
+import type { User } from '../../generated/prisma/client';
+import { isUniqueConstraintViolation } from '../../prisma/prisma-errors';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { LoginDto } from './dto/login.dto';
 import type { SignupDto } from './dto/signup.dto';
@@ -39,9 +40,6 @@ const SESSION_ENDING_REFRESH_ERRORS: ReadonlySet<FirebaseErrorCode> = new Set<Fi
   'USER_DISABLED',
   'USER_NOT_FOUND',
 ]);
-
-/** Prisma error code for a unique constraint violation. */
-const UNIQUE_CONSTRAINT_VIOLATION = 'P2002';
 
 /**
  * Sign-up, login, token refresh and logout (design Â§3.3-3.6). Coordinates Firebase (the
@@ -243,13 +241,6 @@ export class AuthService {
     }
     return undefined;
   }
-}
-
-function isUniqueConstraintViolation(error: unknown): boolean {
-  return (
-    error instanceof Prisma.PrismaClientKnownRequestError &&
-    error.code === UNIQUE_CONSTRAINT_VIOLATION
-  );
 }
 
 /** A log-safe description of an error: its name only, never its message. */

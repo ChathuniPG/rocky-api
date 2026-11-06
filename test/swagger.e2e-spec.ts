@@ -6,6 +6,13 @@ import { configureApp } from '../src/app.setup';
 
 // The OpenAPI documentation served by the real AppModule (prerequisite: `npm run db:up`).
 
+/** A documented JSON response whose schema is the named component. */
+function json(schemaName: string): unknown {
+  return {
+    content: { 'application/json': { schema: { $ref: `#/components/schemas/${schemaName}` } } },
+  };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
@@ -64,6 +71,9 @@ describe('Swagger (e2e)', () => {
       '/api/v1/auth/refresh',
       '/api/v1/auth/signup',
       '/api/v1/health',
+      '/api/v1/posts',
+      '/api/v1/posts/feed',
+      '/api/v1/posts/{id}',
       '/api/v1/uploads',
     ]);
   });
@@ -102,6 +112,40 @@ describe('Swagger (e2e)', () => {
                   },
                 },
               },
+            },
+          },
+        },
+      },
+    });
+  });
+
+  it('documents the posts endpoints with their response types and cursor parameters', () => {
+    expect(document).toMatchObject({
+      paths: {
+        '/api/v1/posts': {
+          post: { security: [{ rocky_id: [] }], responses: { '201': json('PostResponseDto') } },
+        },
+        '/api/v1/posts/feed': {
+          get: {
+            parameters: expect.arrayContaining([
+              expect.objectContaining({ name: 'cursor', in: 'query', required: false }),
+              expect.objectContaining({ name: 'limit', in: 'query', required: false }),
+            ]),
+            responses: { '200': json('PostPageDto'), '400': json('ErrorResponseDto') },
+          },
+        },
+        '/api/v1/posts/{id}': {
+          get: { responses: { '200': json('PostResponseDto'), '404': json('ErrorResponseDto') } },
+          patch: { responses: { '200': json('PostResponseDto'), '403': json('ErrorResponseDto') } },
+          delete: { responses: { '204': expect.any(Object), '403': json('ErrorResponseDto') } },
+        },
+      },
+      components: {
+        schemas: {
+          PostPageDto: {
+            properties: {
+              items: { type: 'array', items: { $ref: '#/components/schemas/PostResponseDto' } },
+              nextCursor: { type: 'string', nullable: true },
             },
           },
         },
