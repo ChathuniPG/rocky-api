@@ -1,6 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '../../generated/prisma/client';
+import { NotificationType } from '../../generated/prisma/enums';
 import { PrismaService } from '../../prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { LikeStateDto } from './dto/like-state.dto';
 import { SaveStateDto } from './dto/save-state.dto';
 import { assertPostExists } from './post-existence';
@@ -13,14 +15,18 @@ import { POST_NOT_FOUND } from './posts.constants';
  * Uniqueness is enforced by the (user_id, post_id) primary keys (NFR-DATA-01), and the
  * insert / delete reports whether a row actually changed. like_count only moves when one
  * did, in the same transaction (ADR-006), so repeated or concurrent calls can neither
- * double count nor push the counter below zero.
+ * double count nor push the counter below zero. The author's LIKE notification follows
+ * the same rule: created only by an insert, removed only by a delete (FR-NOTF-01).
  *
  * If the post is deleted between the existence check and the insert, the foreign key
  * rejects the insert (P2003), which the global exception filter reports as 404.
  */
 @Injectable()
 export class PostEngagementService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   /**
    * Likes a post for the user, if not already liked.
@@ -39,11 +45,19 @@ export class PostEngagementService {
         data: [{ userId, postId }],
         skipDuplicates: true,
       });
+      // A repeated like inserts nothing and must not notify again.
       if (count === 0) {
         return LikeStateDto.of(true, await this.readLikeCount(tx, postId));
       }
-      // TODO(#11): notify the post author about the new like.
-      return LikeStateDto.of(true, await this.changeLikeCount(tx, postId, 1));
+      const { likeCount, authorId } = await this.changeLikeCount(tx, postId, 1);
+      // ADR-006: notification written in the same transaction as the like.
+      await this.notifications.create(tx, {
+        type: NotificationType.LIKE,
+        actorId: userId,
+        recipientId: authorId,
+        postId,
+      });
+      return LikeStateDto.of(true, likeCount);
     });
   }
 
@@ -64,7 +78,10 @@ export class PostEngagementService {
       if (count === 0) {
         return LikeStateDto.of(false, await this.readLikeCount(tx, postId));
       }
-      return LikeStateDto.of(false, await this.changeLikeCount(tx, postId, -1));
+      // Removed with the like, so like → unlike → like leaves exactly one notification.
+      await this.notifications.removeLike(tx, userId, postId);
+      const { likeCount } = await this.changeLikeCount(tx, postId, -1);
+      return LikeStateDto.of(false, likeCount);
     });
   }
 
@@ -99,18 +116,18 @@ export class PostEngagementService {
   /**
    * ADR-006: an atomic `like_count = like_count + delta` in SQL, never a read-modify-write
    * in JavaScript, so concurrent likes by different users cannot overwrite each other.
+   * Also returns the author, the like notification's recipient, without an extra query.
    */
-  private async changeLikeCount(
+  private changeLikeCount(
     tx: Prisma.TransactionClient,
     postId: string,
     delta: 1 | -1,
-  ): Promise<number> {
-    const { likeCount } = await tx.post.update({
+  ): Promise<{ likeCount: number; authorId: string }> {
+    return tx.post.update({
       where: { id: postId },
       data: { likeCount: { increment: delta } },
-      select: { likeCount: true },
+      select: { likeCount: true, authorId: true },
     });
-    return likeCount;
   }
 
   private async readLikeCount(tx: Prisma.TransactionClient, postId: string): Promise<number> {

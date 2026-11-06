@@ -72,6 +72,10 @@ describe('Swagger (e2e)', () => {
       '/api/v1/auth/signup',
       '/api/v1/comments/{id}',
       '/api/v1/health',
+      '/api/v1/notifications',
+      '/api/v1/notifications/read-all',
+      '/api/v1/notifications/unread-count',
+      '/api/v1/notifications/{id}/read',
       '/api/v1/posts',
       '/api/v1/posts/feed',
       '/api/v1/posts/{id}',
@@ -190,6 +194,43 @@ describe('Swagger (e2e)', () => {
             properties: {
               items: { type: 'array', items: { $ref: '#/components/schemas/PostResponseDto' } },
               nextCursor: { type: 'string', nullable: true },
+            },
+          },
+        },
+      },
+    });
+  });
+
+  it('documents the notifications endpoints with their response types', () => {
+    expect(document).toMatchObject({
+      paths: {
+        '/api/v1/notifications': {
+          get: {
+            security: [{ rocky_id: [] }],
+            parameters: expect.arrayContaining([
+              expect.objectContaining({ name: 'cursor', in: 'query', required: false }),
+            ]),
+            responses: { '200': json('NotificationPageDto'), '400': json('ErrorResponseDto') },
+          },
+        },
+        '/api/v1/notifications/unread-count': {
+          get: { responses: { '200': json('UnreadCountDto') } },
+        },
+        '/api/v1/notifications/{id}/read': {
+          patch: { responses: { '204': expect.any(Object), '404': json('ErrorResponseDto') } },
+        },
+        '/api/v1/notifications/read-all': {
+          patch: { responses: { '204': expect.any(Object) } },
+        },
+      },
+      components: {
+        schemas: {
+          NotificationType: { type: 'string', enum: ['LIKE', 'COMMENT', 'FOLLOW'] },
+          NotificationResponseDto: {
+            properties: {
+              type: { allOf: [{ $ref: '#/components/schemas/NotificationType' }] },
+              post: { nullable: true },
+              comment: { nullable: true },
             },
           },
         },

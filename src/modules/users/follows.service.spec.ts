@@ -1,6 +1,8 @@
 import { BadRequestException, Logger, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { NotificationType } from '../../generated/prisma/enums';
 import { PrismaService } from '../../prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { FollowsService } from './follows.service';
 import { CANNOT_FOLLOW_SELF, USER_NOT_FOUND } from './users.constants';
 
@@ -22,6 +24,10 @@ describe('FollowsService', () => {
     // The transaction client is the same mock, so assertions see every call.
     $transaction: jest.fn<Promise<unknown>, [(tx: unknown) => Promise<unknown>]>(),
   };
+  const notifications = {
+    create: jest.fn<Promise<void>, [unknown, unknown]>(),
+    removeFollow: jest.fn<Promise<void>, [unknown, string, string]>(),
+  };
   let service: FollowsService;
 
   beforeEach(async () => {
@@ -31,7 +37,11 @@ describe('FollowsService', () => {
     prisma.user.findUnique.mockResolvedValue({ id: OTHER_USER_ID });
 
     const moduleRef = await Test.createTestingModule({
-      providers: [FollowsService, { provide: PrismaService, useValue: prisma }],
+      providers: [
+        FollowsService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: NotificationsService, useValue: notifications },
+      ],
     }).compile();
     service = moduleRef.get(FollowsService);
   });
@@ -54,9 +64,15 @@ describe('FollowsService', () => {
         skipDuplicates: true,
       });
       expect(prisma.follow.count).toHaveBeenCalledWith({ where: { followingId: OTHER_USER_ID } });
+      // The mock transaction client is `prisma` itself (see $transaction above).
+      expect(notifications.create).toHaveBeenCalledWith(prisma, {
+        type: NotificationType.FOLLOW,
+        actorId: USER_ID,
+        recipientId: OTHER_USER_ID,
+      });
     });
 
-    it('returns the same state when already following', async () => {
+    it('returns the same state without notifying again when already following', async () => {
       prisma.follow.createMany.mockResolvedValue({ count: 0 });
       prisma.follow.count.mockResolvedValue(4);
 
@@ -64,6 +80,7 @@ describe('FollowsService', () => {
         isFollowing: true,
         followerCount: 4,
       });
+      expect(notifications.create).not.toHaveBeenCalled();
     });
 
     it('rejects following yourself with 400 before any query', async () => {
@@ -97,6 +114,7 @@ describe('FollowsService', () => {
       expect(prisma.follow.deleteMany).toHaveBeenCalledWith({
         where: { followerId: USER_ID, followingId: OTHER_USER_ID },
       });
+      expect(notifications.removeFollow).toHaveBeenCalledWith(prisma, USER_ID, OTHER_USER_ID);
     });
 
     it('is a no-op when not following', async () => {
@@ -107,6 +125,7 @@ describe('FollowsService', () => {
         isFollowing: false,
         followerCount: 0,
       });
+      expect(notifications.removeFollow).not.toHaveBeenCalled();
     });
 
     it('rejects unfollowing yourself with 400 before any query', async () => {
@@ -122,5 +141,30 @@ describe('FollowsService', () => {
       );
       expect(prisma.follow.deleteMany).not.toHaveBeenCalled();
     });
+  });
+
+  it('follow, unfollow, follow notifies on each insert and removes on the delete', async () => {
+    // A tiny in-memory model of the follows table.
+    let following = false;
+    prisma.follow.createMany.mockImplementation(() => {
+      const count = following ? 0 : 1;
+      following = true;
+      return Promise.resolve({ count });
+    });
+    prisma.follow.deleteMany.mockImplementation(() => {
+      const count = following ? 1 : 0;
+      following = false;
+      return Promise.resolve({ count });
+    });
+    prisma.follow.count.mockResolvedValue(0);
+
+    await service.follow(USER_ID, OTHER_USER_ID);
+    await service.follow(USER_ID, OTHER_USER_ID);
+    await service.unfollow(USER_ID, OTHER_USER_ID);
+    await service.follow(USER_ID, OTHER_USER_ID);
+
+    // Every create after the first is preceded by a remove, so at most one notification exists.
+    expect(notifications.create).toHaveBeenCalledTimes(2);
+    expect(notifications.removeFollow).toHaveBeenCalledTimes(1);
   });
 });

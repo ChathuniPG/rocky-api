@@ -2,7 +2,9 @@ import { BadRequestException, ForbiddenException, Logger, NotFoundException } fr
 import { Test } from '@nestjs/testing';
 import { decodeCursor, encodeCursor } from '../../common/pagination/cursor-pagination';
 import { PaginationQueryDto } from '../../common/pagination/pagination-query.dto';
+import { NotificationType } from '../../generated/prisma/enums';
 import { PrismaService } from '../../prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import type { CommentRow } from './comment-query';
 import { CommentsService } from './comments.service';
 import { CreateCommentDto } from './dto/create-comment.dto';
@@ -54,6 +56,7 @@ describe('CommentsService', () => {
     // The transaction client is the same mock, so assertions see every call.
     $transaction: jest.fn<Promise<unknown>, [(tx: unknown) => Promise<unknown>]>(),
   };
+  const notifications = { create: jest.fn<Promise<void>, [unknown, unknown]>() };
   let service: CommentsService;
 
   beforeEach(async () => {
@@ -63,7 +66,11 @@ describe('CommentsService', () => {
     prisma.post.findUnique.mockResolvedValue({ id: POST_ID });
 
     const moduleRef = await Test.createTestingModule({
-      providers: [CommentsService, { provide: PrismaService, useValue: prisma }],
+      providers: [
+        CommentsService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: NotificationsService, useValue: notifications },
+      ],
     }).compile();
     service = moduleRef.get(CommentsService);
   });
@@ -147,9 +154,12 @@ describe('CommentsService', () => {
   });
 
   describe('create', () => {
-    it('creates the comment and increments comment_count in one transaction', async () => {
+    beforeEach(() => {
       prisma.comment.create.mockResolvedValue(commentRow());
+      prisma.post.update.mockResolvedValue({ authorId: OTHER_USER_ID });
+    });
 
+    it('creates the comment and increments comment_count in one transaction', async () => {
       const result = await service.create(USER_ID, POST_ID, createDto('Nice'));
 
       expect(result).toMatchObject({ id: COMMENT_ID, body: 'Nice', author: { id: USER_ID } });
@@ -161,7 +171,20 @@ describe('CommentsService', () => {
       expect(prisma.post.update).toHaveBeenCalledWith({
         where: { id: POST_ID },
         data: { commentCount: { increment: 1 } },
-        select: { id: true },
+        select: { authorId: true },
+      });
+    });
+
+    it('notifies the post author with the transaction client', async () => {
+      await service.create(USER_ID, POST_ID, createDto('Nice'));
+
+      // The mock transaction client is `prisma` itself (see $transaction above).
+      expect(notifications.create).toHaveBeenCalledWith(prisma, {
+        type: NotificationType.COMMENT,
+        actorId: USER_ID,
+        recipientId: OTHER_USER_ID,
+        postId: POST_ID,
+        commentId: COMMENT_ID,
       });
     });
 
@@ -173,6 +196,7 @@ describe('CommentsService', () => {
       await expect(promise).rejects.toThrow(POST_NOT_FOUND);
       expect(prisma.comment.create).not.toHaveBeenCalled();
       expect(prisma.post.update).not.toHaveBeenCalled();
+      expect(notifications.create).not.toHaveBeenCalled();
     });
   });
 
