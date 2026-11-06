@@ -293,7 +293,7 @@ Figure 3 shows the complete schema, including keys and relationship cardinalitie
 
 | **Method** | **Path** | **Description**                                                                 |
 |------------|----------|---------------------------------------------------------------------------------|
-| POST       | /uploads | Multipart file plus purpose (avatar \| post). Returns { url, path, mediaType }. |
+| POST       | /uploads | Multipart file plus purpose (avatar \| post). Returns { url, path, mediaType, contentType, sizeBytes }. |
 
 #### Notifications
 
@@ -457,7 +457,7 @@ Figure 5 summarizes the route structure and how authentication controls access.
 
 - **Context:** The brief specifies an Upload API that returns a URL to the frontend.
 
-- **Decision:** The client uploads to POST /uploads, which stores files under {purpose}/{userId}/{uuid}, then creates the post with the returned path. The API checks that the path belongs to the requesting user.
+- **Decision:** The client uploads to POST /uploads, which stores files under posts/{userId}/{uuid}.{ext} or avatars/{userId}/{uuid}.{ext} (the extension comes from the type detected from the file's contents), then creates the post with the returned path. The API checks that the path belongs to the requesting user.
 
 - **Consequences:** Clean separation of concerns and reusable uploads (posts and avatars). Abandoned uploads can leave orphaned files; a cleanup job is a future improvement.
 

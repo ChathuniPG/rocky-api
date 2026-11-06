@@ -64,7 +64,49 @@ describe('Swagger (e2e)', () => {
       '/api/v1/auth/refresh',
       '/api/v1/auth/signup',
       '/api/v1/health',
+      '/api/v1/uploads',
     ]);
+  });
+
+  it('documents POST /uploads as a multipart form with a binary file and a purpose', () => {
+    expect(document).toMatchObject({
+      paths: {
+        '/api/v1/uploads': {
+          post: {
+            security: [{ rocky_id: [] }],
+            requestBody: {
+              content: {
+                'multipart/form-data': {
+                  schema: {
+                    required: ['file', 'purpose'],
+                    properties: {
+                      file: { type: 'string', format: 'binary' },
+                      purpose: { type: 'string', enum: ['avatar', 'post'] },
+                    },
+                  },
+                },
+              },
+            },
+            responses: {
+              '201': {
+                content: {
+                  'application/json': {
+                    schema: { $ref: '#/components/schemas/UploadResponseDto' },
+                  },
+                },
+              },
+              '413': {
+                content: {
+                  'application/json': {
+                    schema: { $ref: '#/components/schemas/ErrorResponseDto' },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
   });
 
   it('declares cookie authentication for both session cookies', () => {

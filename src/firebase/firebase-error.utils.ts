@@ -18,6 +18,19 @@ export function readErrorCode(error: unknown): string | undefined {
 }
 
 /**
+ * Reads the numeric HTTP status of a Google Cloud Storage error. GCS `ApiError.code` is a
+ * number (e.g. 404), unlike the string codes of the Auth SDK read by {@link readErrorCode}.
+ *
+ * @returns The status, or `undefined` if the error has no numeric `code`.
+ */
+export function readHttpStatus(error: unknown): number | undefined {
+  if (typeof error !== 'object' || error === null || !('code' in error)) {
+    return undefined;
+  }
+  return typeof error.code === 'number' ? error.code : undefined;
+}
+
+/**
  * Translates a Firebase error code into a domain error using `mapping`. An unmapped code
  * is unexpected, so it is logged (by code only, because SDK and REST messages can echo
  * user input) and reported as `FirebaseUnavailableError` with `cause` as its cause.
