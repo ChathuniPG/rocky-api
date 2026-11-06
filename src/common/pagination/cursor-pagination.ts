@@ -138,6 +138,44 @@ export function keysetOrderBy(): KeysetOrderBy {
   return [{ createdAt: 'desc' }, { id: 'desc' }];
 }
 
+/** One branch of the "newer than" keyset condition. */
+export type KeysetNewerCondition =
+  { createdAt: { gt: Date } } | { createdAt: Date; id: { gt: string } };
+
+/** Prisma `where` fragment selecting the rows strictly after a position in ascending order. */
+export interface KeysetNewerWhere {
+  OR: KeysetNewerCondition[];
+}
+
+/** Prisma `orderBy` matching {@link keysetNewerWhere}: oldest first. */
+export type KeysetAscendingOrderBy = [{ createdAt: 'asc' }, { id: 'asc' }];
+
+/**
+ * The mirror image of {@link keysetWhere}, "(created_at, id) > (position)", for reading
+ * forwards in time from a known row, e.g. polling for messages newer than the last one
+ * the client has (ADR-008). Same tie-breaker, so a row is never both "older" and "newer".
+ *
+ * @param position - The row to continue after.
+ * @returns An `OR` condition to spread into the query's `where`.
+ */
+export function keysetNewerWhere(position: CursorPosition): KeysetNewerWhere {
+  return {
+    OR: [
+      { createdAt: { gt: position.createdAt } },
+      { createdAt: position.createdAt, id: { gt: position.id } },
+    ],
+  };
+}
+
+/**
+ * The sort order to use with {@link keysetNewerWhere}.
+ *
+ * @returns `[{ createdAt: 'asc' }, { id: 'asc' }]`.
+ */
+export function keysetAscendingOrderBy(): KeysetAscendingOrderBy {
+  return [{ createdAt: 'asc' }, { id: 'asc' }];
+}
+
 /**
  * Turns the rows of a query made with `take: limit + 1` into a page. The extra row only
  * signals that another page exists; it is not returned. This avoids a COUNT query and

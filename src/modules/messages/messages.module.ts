@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { ConversationsController } from './conversations.controller';
 import { ConversationsService } from './conversations.service';
+import { MessagesController } from './messages.controller';
+import { MessagesService } from './messages.service';
 
 /**
  * Direct messages (design §6): one-to-one conversations and their messages, delivered by
@@ -8,7 +10,7 @@ import { ConversationsService } from './conversations.service';
  * check is a plain function from the users module, so UsersModule is not imported.
  */
 @Module({
-  controllers: [ConversationsController],
-  providers: [ConversationsService],
+  controllers: [ConversationsController, MessagesController],
+  providers: [ConversationsService, MessagesService],
 })
 export class MessagesModule {}

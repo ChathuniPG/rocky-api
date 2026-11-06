@@ -71,6 +71,9 @@ describe('Swagger (e2e)', () => {
       '/api/v1/auth/refresh',
       '/api/v1/auth/signup',
       '/api/v1/comments/{id}',
+      '/api/v1/conversations',
+      '/api/v1/conversations/{id}/messages',
+      '/api/v1/conversations/{id}/read',
       '/api/v1/health',
       '/api/v1/notifications',
       '/api/v1/notifications/read-all',
@@ -233,6 +236,32 @@ describe('Swagger (e2e)', () => {
               comment: { nullable: true },
             },
           },
+        },
+      },
+    });
+  });
+
+  it('documents the conversation and message endpoints', () => {
+    const jsonContent = { 'application/json': { schema: expect.any(Object) } };
+    expect(document).toMatchObject({
+      paths: {
+        '/api/v1/conversations': {
+          get: { tags: ['Messages'], security: [{ rocky_id: [] }] },
+          post: { responses: { '200': { content: jsonContent }, '201': { content: jsonContent } } },
+        },
+        '/api/v1/conversations/{id}/messages': {
+          get: {
+            parameters: expect.arrayContaining([
+              expect.objectContaining({ name: 'id', in: 'path', required: true }),
+              expect.objectContaining({ name: 'after', in: 'query', required: false }),
+              expect.objectContaining({ name: 'cursor', in: 'query', required: false }),
+            ]),
+            responses: { '404': expect.any(Object) },
+          },
+          post: { responses: { '201': { content: jsonContent }, '429': expect.any(Object) } },
+        },
+        '/api/v1/conversations/{id}/read': {
+          patch: { responses: { '204': expect.any(Object), '404': expect.any(Object) } },
         },
       },
     });

@@ -15,14 +15,7 @@ import type { User } from '../../generated/prisma/client';
 import { ConversationsService } from './conversations.service';
 import { ConversationPageDto, ConversationResponseDto } from './dto/conversation-response.dto';
 import { CreateConversationDto } from './dto/create-conversation.dto';
-
-/** Errors every conversation endpoint can return: auth, rate limit and backing-service outages. */
-export const CONVERSATION_COMMON_ERRORS = [
-  HttpStatus.UNAUTHORIZED,
-  HttpStatus.FORBIDDEN,
-  HttpStatus.TOO_MANY_REQUESTS,
-  HttpStatus.SERVICE_UNAVAILABLE,
-] as const;
+import { CONVERSATION_COMMON_ERRORS } from './messages.constants';
 
 /**
  * Conversation endpoints (design §5.2). Every route requires authentication and only

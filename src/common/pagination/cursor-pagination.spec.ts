@@ -6,6 +6,8 @@ import {
   encodeCursor,
   encodeKeyCursor,
   INVALID_CURSOR_MESSAGE,
+  keysetAscendingOrderBy,
+  keysetNewerWhere,
   keysetOrderBy,
   keysetWhere,
   toCursorPage,
@@ -98,6 +100,18 @@ describe('cursor pagination', () => {
 
       expect(first).toEqual([{ createdAt: 'desc' }, { id: 'desc' }]);
       expect(keysetOrderBy()).not.toBe(first);
+    });
+  });
+
+  describe('keysetNewerWhere', () => {
+    it('selects newer rows, and rows with the same timestamp but a larger id', () => {
+      expect(keysetNewerWhere({ createdAt: T1, id: ID_2 })).toEqual({
+        OR: [{ createdAt: { gt: T1 } }, { createdAt: T1, id: { gt: ID_2 } }],
+      });
+    });
+
+    it('orders by createdAt ASC, then id ASC', () => {
+      expect(keysetAscendingOrderBy()).toEqual([{ createdAt: 'asc' }, { id: 'asc' }]);
     });
   });
 
