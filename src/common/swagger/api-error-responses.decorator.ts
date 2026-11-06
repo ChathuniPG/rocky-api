@@ -9,6 +9,7 @@ const ERROR_DESCRIPTIONS: Readonly<Partial<Record<HttpStatus, string>>> = {
   [HttpStatus.FORBIDDEN]: 'The account is disabled.',
   [HttpStatus.NOT_FOUND]: 'The resource does not exist.',
   [HttpStatus.CONFLICT]: 'The resource already exists.',
+  [HttpStatus.PAYLOAD_TOO_LARGE]: 'The request body or uploaded file is too large.',
   [HttpStatus.TOO_MANY_REQUESTS]: 'Rate limit exceeded; see the Retry-After header.',
   [HttpStatus.SERVICE_UNAVAILABLE]: 'A backing service (Firebase or the database) is unavailable.',
 };

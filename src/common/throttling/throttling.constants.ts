@@ -23,5 +23,12 @@ export const DEFAULT_THROTTLE = { ttl: ONE_MINUTE_MS, limit: 100 } as const;
  */
 export const AUTH_THROTTLE = { ttl: ONE_MINUTE_MS, limit: 10 } as const;
 
+/**
+ * Stricter limit for POST /uploads: 20 requests per minute per client IP. Each request can
+ * carry 25 MB that is buffered in memory and written to Firebase Storage, so the global
+ * default would allow far more bandwidth, memory and storage cost than a real user needs.
+ */
+export const UPLOAD_THROTTLE = { ttl: ONE_MINUTE_MS, limit: 20 } as const;
+
 /** Client message of a 429 response; the body itself is the standard error body. */
 export const TOO_MANY_REQUESTS_MESSAGE = 'Too many requests, please try again later';

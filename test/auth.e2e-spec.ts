@@ -1,15 +1,11 @@
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
-import type { App as FirebaseApp } from 'firebase-admin/app';
-import { getAuth } from 'firebase-admin/auth';
-import { randomBytes } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/app.setup';
-import { FIREBASE_APP } from '../src/firebase/firebase.constants';
-import { PrismaService } from '../src/prisma/prisma.service';
 import { cookieHeader, findSetCookie, setCookieValue } from './helpers/cookies';
+import { deleteTestUser, uniqueTestUserCredentials } from './helpers/test-user';
 
 // Live test of the full auth lifecycle against the real local database and the real
 // Firebase project from .env. Prerequisites: `npm run db:up`, migrations applied, and a
@@ -20,10 +16,7 @@ import { cookieHeader, findSetCookie, setCookieValue } from './helpers/cookies';
 
 jest.setTimeout(60_000);
 
-const suffix = `${Date.now().toString(36)}${randomBytes(3).toString('hex')}`;
-const email = `rocky-e2e-${suffix}@example.com`;
-const username = `e2e_${suffix}`;
-const password = `E2e-${randomBytes(6).toString('hex')}1`;
+const { email, username, password } = uniqueTestUserCredentials('e2e');
 
 describe('Auth lifecycle (e2e, live Firebase)', () => {
   let app: NestExpressApplication;
@@ -39,7 +32,7 @@ describe('Auth lifecycle (e2e, live Firebase)', () => {
   });
 
   afterAll(async () => {
-    await deleteTestUser(app);
+    await deleteTestUser(app, email);
     await app.close();
   });
 
@@ -161,33 +154,3 @@ describe('Auth lifecycle (e2e, live Firebase)', () => {
     await getMe(idToken).expect(200);
   });
 });
-
-/**
- * Removes the test user from PostgreSQL and Firebase. Looks the Firebase user up by
- * email, so it also cleans up after a sign-up that failed half-way.
- */
-async function deleteTestUser(app: NestExpressApplication | undefined): Promise<void> {
-  if (!app) {
-    return;
-  }
-  await app.get(PrismaService).user.deleteMany({ where: { email } });
-
-  const auth = getAuth(app.get<FirebaseApp>(FIREBASE_APP));
-  try {
-    const firebaseUser = await auth.getUserByEmail(email);
-    await auth.deleteUser(firebaseUser.uid);
-  } catch (error: unknown) {
-    if (!isFirebaseUserNotFound(error)) {
-      throw error;
-    }
-  }
-}
-
-function isFirebaseUserNotFound(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    error.code === 'auth/user-not-found'
-  );
-}
