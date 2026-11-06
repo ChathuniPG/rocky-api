@@ -1,14 +1,9 @@
-import {
-  type CanActivate,
-  type ExecutionContext,
-  type INestApplication,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { type CanActivate, type ExecutionContext, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
-import type { App } from 'supertest/types';
 import { cookieHeader, findSetCookie, setCookieValue } from '../../../test/helpers/cookies';
 import { buildUser } from '../../../test/fixtures/user.fixture';
 import { configureApp } from '../../app.setup';
@@ -52,7 +47,7 @@ describe('AuthController (HTTP)', () => {
     refresh: jest.fn(),
     logout: jest.fn(),
   };
-  let app: INestApplication<App>;
+  let app: NestExpressApplication;
 
   beforeEach(async () => {
     jest.resetAllMocks();
@@ -66,7 +61,7 @@ describe('AuthController (HTTP)', () => {
         { provide: APP_GUARD, useClass: FakeAuthGuard },
       ],
     }).compile();
-    app = configureApp(moduleRef.createNestApplication<INestApplication<App>>({ logger: false }));
+    app = configureApp(moduleRef.createNestApplication<NestExpressApplication>({ logger: false }));
     await app.init();
   });
 

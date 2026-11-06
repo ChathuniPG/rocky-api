@@ -9,6 +9,7 @@ import {
 import type { Request, Response } from 'express';
 import { STATUS_CODES } from 'node:http';
 import { FirebaseDomainError, type FirebaseErrorCode } from '../../firebase/firebase.errors';
+import { Prisma } from '../../generated/prisma/client';
 
 /** JSON body of every error response (design §5.1). */
 export interface ErrorResponseBody {
@@ -36,10 +37,9 @@ const SERVICE_UNAVAILABLE_MESSAGE = 'Service temporarily unavailable';
  *
  * - `HttpException`: its own status and message.
  * - `FirebaseDomainError`: mapped to an HTTP status (see {@link mapFirebaseError}).
+ * - Prisma errors: mapped to an HTTP status (see {@link mapPrismaError}).
  * - Anything else: 500 with a generic message. The stack trace is logged server-side and
- *   never sent to the client, nor are raw Firebase or Prisma messages.
- *
- * Issue #5 extends this filter with further mappings (e.g. Prisma errors).
+ *   never sent to the client, nor are raw Firebase or Prisma messages (NFR-OPS-02).
  */
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
@@ -80,6 +80,20 @@ export class AllExceptionsFilter implements ExceptionFilter {
       if (mapped.status >= 500) {
         // Name and code only: the domain error's `cause` may hold the raw Firebase error.
         this.logger.error(`${request.method} ${request.path} failed: ${exception.name}`);
+      }
+      return mapped;
+    }
+
+    if (
+      exception instanceof Prisma.PrismaClientKnownRequestError ||
+      exception instanceof Prisma.PrismaClientInitializationError
+    ) {
+      const mapped = mapPrismaError(exception);
+      if (mapped.status >= 500) {
+        // Name and code only: Prisma messages and `meta` can contain column values.
+        this.logger.error(
+          `${request.method} ${request.path} failed: ${exception.name} ${prismaErrorCode(exception)}`,
+        );
       }
       return mapped;
     }
@@ -128,6 +142,58 @@ const FIREBASE_ERROR_MAPPING: Record<FirebaseErrorCode, { status: HttpStatus; me
 export function mapFirebaseError(error: FirebaseDomainError): MappedError {
   const { status, message } = FIREBASE_ERROR_MAPPING[error.code];
   return { status, message: message ?? error.message };
+}
+
+/**
+ * HTTP mapping of the Prisma error codes a request can legitimately trigger. Services may
+ * catch a code first to give a more specific message (e.g. "Username is already taken");
+ * this table is the safety net, so a raw Prisma error never reaches the client.
+ * Codes: https://www.prisma.io/docs/orm/reference/error-reference
+ */
+const PRISMA_ERROR_MAPPING: Readonly<Record<string, MappedError>> = {
+  // Unique constraint violation, e.g. a duplicate like that slipped past a check.
+  P2002: { status: HttpStatus.CONFLICT, message: 'Resource already exists' },
+  // Foreign key violation: in this schema it means the referenced post, user or
+  // conversation does not exist (or was deleted concurrently), so 404 rather than 400.
+  P2003: { status: HttpStatus.NOT_FOUND, message: 'Related resource not found' },
+  // update/delete on a row that does not exist.
+  P2025: { status: HttpStatus.NOT_FOUND, message: 'Resource not found' },
+  // Database unreachable, timed out or closed the connection: an outage, not a bug.
+  P1001: { status: HttpStatus.SERVICE_UNAVAILABLE, message: SERVICE_UNAVAILABLE_MESSAGE },
+  P1002: { status: HttpStatus.SERVICE_UNAVAILABLE, message: SERVICE_UNAVAILABLE_MESSAGE },
+  P1008: { status: HttpStatus.SERVICE_UNAVAILABLE, message: SERVICE_UNAVAILABLE_MESSAGE },
+  P1017: { status: HttpStatus.SERVICE_UNAVAILABLE, message: SERVICE_UNAVAILABLE_MESSAGE },
+};
+
+/**
+ * Maps a Prisma error to an HTTP status and a fixed, safe client message. The Prisma
+ * message is never used: it can contain table, column and value details.
+ *
+ * @param error - A known request error (has a `P` code) or an initialization error
+ *   (the database could not be reached).
+ * @returns 409/404/503 for the codes in the mapping, 503 for initialization errors,
+ *   and 500 for everything else.
+ */
+export function mapPrismaError(
+  error: Prisma.PrismaClientKnownRequestError | Prisma.PrismaClientInitializationError,
+): MappedError {
+  if (error instanceof Prisma.PrismaClientInitializationError) {
+    return { status: HttpStatus.SERVICE_UNAVAILABLE, message: SERVICE_UNAVAILABLE_MESSAGE };
+  }
+  return (
+    PRISMA_ERROR_MAPPING[error.code] ?? {
+      status: HttpStatus.INTERNAL_SERVER_ERROR,
+      message: INTERNAL_ERROR_MESSAGE,
+    }
+  );
+}
+
+/** The Prisma error code for logs, e.g. "P1001"; "no code" if Prisma did not set one. */
+function prismaErrorCode(
+  error: Prisma.PrismaClientKnownRequestError | Prisma.PrismaClientInitializationError,
+): string {
+  const code = error instanceof Prisma.PrismaClientKnownRequestError ? error.code : error.errorCode;
+  return code ?? 'no code';
 }
 
 /**

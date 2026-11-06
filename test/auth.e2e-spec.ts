@@ -1,11 +1,10 @@
-import type { INestApplication } from '@nestjs/common';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import type { App as FirebaseApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { randomBytes } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 import request from 'supertest';
-import type { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/app.setup';
 import { FIREBASE_APP } from '../src/firebase/firebase.constants';
@@ -27,7 +26,7 @@ const username = `e2e_${suffix}`;
 const password = `E2e-${randomBytes(6).toString('hex')}1`;
 
 describe('Auth lifecycle (e2e, live Firebase)', () => {
-  let app: INestApplication<App>;
+  let app: NestExpressApplication;
   let idToken: string | undefined;
   let refreshToken: string | undefined;
   let idTokenBeforeLogout: string | undefined;
@@ -35,7 +34,7 @@ describe('Auth lifecycle (e2e, live Firebase)', () => {
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
-    app = configureApp(moduleRef.createNestApplication<INestApplication<App>>());
+    app = configureApp(moduleRef.createNestApplication<NestExpressApplication>());
     await app.init();
   });
 
@@ -167,7 +166,7 @@ describe('Auth lifecycle (e2e, live Firebase)', () => {
  * Removes the test user from PostgreSQL and Firebase. Looks the Firebase user up by
  * email, so it also cleans up after a sign-up that failed half-way.
  */
-async function deleteTestUser(app: INestApplication<App> | undefined): Promise<void> {
+async function deleteTestUser(app: NestExpressApplication | undefined): Promise<void> {
   if (!app) {
     return;
   }

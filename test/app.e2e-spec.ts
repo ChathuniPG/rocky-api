@@ -1,7 +1,6 @@
-import type { INestApplication } from '@nestjs/common';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
-import type { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/app.setup';
 
@@ -10,14 +9,14 @@ import { configureApp } from '../src/app.setup';
 // no queries, so it reads and writes no data.
 
 describe('Application bootstrap (e2e)', () => {
-  let app: INestApplication<App>;
+  let app: NestExpressApplication;
 
   beforeEach(async () => {
     const moduleFixture = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
 
-    app = configureApp(moduleFixture.createNestApplication<INestApplication<App>>());
+    app = configureApp(moduleFixture.createNestApplication<NestExpressApplication>());
     await app.init();
   });
 

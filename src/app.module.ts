@@ -5,6 +5,7 @@ import { FirebaseAuthGuard } from './common/guards/firebase-auth.guard';
 import { validateEnv } from './config/env.validation';
 import { FirebaseModule } from './firebase/firebase.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { HealthModule } from './modules/health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
 
 /** Root module: wires infrastructure and feature modules together. */
@@ -16,6 +17,7 @@ import { PrismaModule } from './prisma/prisma.module';
     PrismaModule,
     FirebaseModule,
     AuthModule,
+    HealthModule,
   ],
   providers: [
     // NFR-SEC-01: every route requires authentication unless marked @Public().

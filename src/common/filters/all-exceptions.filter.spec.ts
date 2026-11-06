@@ -21,6 +21,7 @@ import {
   UserNotFoundError,
   WeakPasswordError,
 } from '../../firebase/firebase.errors';
+import { Prisma } from '../../generated/prisma/client';
 import { AllExceptionsFilter } from './all-exceptions.filter';
 
 const SECRET = 'eyJhbGciOiJSUzI1NiJ9.secret-token';
@@ -49,6 +50,15 @@ function runFilter(exception: unknown, originalUrl = '/api/v1/auth/me'): FakeRes
   new AllExceptionsFilter().catch(exception, new ExecutionContextHost([request, response]));
 
   return response;
+}
+
+/** A Prisma known request error whose message and meta carry data that must not leak. */
+function knownError(code: string): Prisma.PrismaClientKnownRequestError {
+  return new Prisma.PrismaClientKnownRequestError(`Constraint failed on ${SECRET}`, {
+    code,
+    clientVersion: 'test',
+    meta: { target: ['email'], value: SECRET },
+  });
 }
 
 describe('AllExceptionsFilter', () => {
@@ -135,6 +145,53 @@ describe('AllExceptionsFilter', () => {
 
     it('does not log client errors such as invalid credentials', () => {
       runFilter(new InvalidCredentialsError());
+
+      expect(errorLog).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Prisma errors', () => {
+    it.each<[string, number, string]>([
+      ['P2002', 409, 'Resource already exists'],
+      ['P2003', 404, 'Related resource not found'],
+      ['P2025', 404, 'Resource not found'],
+      ['P1001', 503, 'Service temporarily unavailable'],
+      ['P1017', 503, 'Service temporarily unavailable'],
+      ['P2010', 500, 'Internal server error'],
+    ])('maps %s to %i', (code, expectedStatus, expectedMessage) => {
+      const response = runFilter(knownError(code));
+
+      expect(response.statusCode).toBe(expectedStatus);
+      expect(response.body).toMatchObject({ statusCode: expectedStatus, message: expectedMessage });
+      expect(JSON.stringify(response.body)).not.toContain(SECRET);
+    });
+
+    it('maps an initialization error (database unreachable) to 503', () => {
+      const error = new Prisma.PrismaClientInitializationError(
+        `Can't reach database server at ${SECRET}`,
+        'test',
+        'P1001',
+      );
+
+      const response = runFilter(error);
+
+      expect(response.statusCode).toBe(503);
+      expect(response.body).toMatchObject({ message: 'Service temporarily unavailable' });
+      expect(JSON.stringify(response.body)).not.toContain(SECRET);
+    });
+
+    it('logs only the name and code of server-side failures', () => {
+      runFilter(knownError('P2010'));
+
+      expect(errorLog).toHaveBeenCalledTimes(1);
+      expect(errorLog).toHaveBeenCalledWith(
+        'GET /api/v1/auth/me failed: PrismaClientKnownRequestError P2010',
+      );
+      expect(JSON.stringify(errorLog.mock.calls)).not.toContain(SECRET);
+    });
+
+    it('does not log client errors such as a unique violation', () => {
+      runFilter(knownError('P2002'));
 
       expect(errorLog).not.toHaveBeenCalled();
     });
