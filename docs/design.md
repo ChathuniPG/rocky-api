@@ -136,6 +136,7 @@ Figure 2 illustrates the complete authentication lifecycle described in Sections
 | display_name           | varchar(50)  | not null                                   |
 | bio                    | varchar(160) | nullable                                   |
 | avatar_url             | text         | nullable                                   |
+| avatar_path            | text         | nullable (Storage path of the current avatar, so the server can delete a replaced or removed avatar; never returned to clients) |
 | notifications_enabled  | boolean      | not null, default true                     |
 | language               | varchar(5)   | not null, default ‘en’                     |
 | created_at, updated_at | timestamptz  | not null                                   |
@@ -168,12 +169,12 @@ Figure 2 illustrates the complete authentication lifecycle described in Sections
 
 | **Column** | **Type**    | **Constraints**                 |
 |------------|-------------|---------------------------------|
-| user_id    | uuid        | FK → users, indexed on (user_id, created_at DESC, id)                      |
+| user_id    | uuid        | FK → users (covered by the primary key)                      |
 | post_id    | uuid        | FK → posts, indexed                      |
 | created_at | timestamptz | not null                        |
 |            |             | Composite PK (user_id, post_id) |
 
-The composite primary key makes duplicate likes or saves impossible at the database level.
+The composite primary key makes duplicate likes or saves impossible at the database level. saves also has an index on (user_id, created_at, post_id) for the saved-posts list: saves have no id column, so post_id is the cursor tie-breaker (ADR-005).
 
 #### follows
 
