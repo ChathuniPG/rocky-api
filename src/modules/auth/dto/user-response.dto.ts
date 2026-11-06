@@ -1,3 +1,4 @@
+import { ApiProperty } from '@nestjs/swagger';
 import type { User } from '../../../generated/prisma/client';
 
 /**
@@ -6,14 +7,31 @@ import type { User } from '../../../generated/prisma/client';
  * `updatedAt` can never leak by accident when the users table grows.
  */
 export class UserResponseDto {
+  @ApiProperty({ format: 'uuid' })
   id: string;
+
+  @ApiProperty({ format: 'email', example: 'alice@example.com' })
   email: string;
+
+  @ApiProperty({ example: 'alice' })
   username: string;
+
+  @ApiProperty({ example: 'Alice' })
   displayName: string;
+
+  @ApiProperty({ type: String, nullable: true, example: null })
   bio: string | null;
+
+  @ApiProperty({ type: String, format: 'uri', nullable: true, example: null })
   avatarUrl: string | null;
+
+  @ApiProperty({ example: true })
   notificationsEnabled: boolean;
+
+  @ApiProperty({ example: 'en' })
   language: string;
+
+  @ApiProperty({ type: String, format: 'date-time' })
   createdAt: Date;
 
   /**

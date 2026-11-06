@@ -1,5 +1,5 @@
 import type { Request } from 'express';
-import { API_PREFIX } from '../../app.setup';
+import { API_PREFIX } from '../http/api-prefix.constants';
 
 /** Cookie holding the Firebase ID token (design §3.2). Sent with every API request. */
 export const ID_TOKEN_COOKIE = 'rocky_id';
