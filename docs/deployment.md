@@ -39,8 +39,16 @@ and `/` returns a "coming soon" placeholder.
 17. [Troubleshooting](#17-troubleshooting)
 
 Placeholders used below: `<elastic-ip>` is the instance's public address, `<admin-ip>` is the
-public IP of the machine you administer from, `<key-file>` is the private key downloaded from
-AWS and `<repository-url>` is the Git clone URL of this repository.
+public IP of the machine you administer from and `<key-file>` is the private key downloaded
+from AWS.
+
+Server layout:
+
+| Path                                         | Contents                                   |
+| -------------------------------------------- | ------------------------------------------ |
+| `/home/ubuntu/rocky/rocky-api`               | This repository (`~/rocky/rocky-api`)      |
+| `/home/ubuntu/rocky/secrets/`                | Secrets directory, mode 700                |
+| `/home/ubuntu/rocky/secrets/firebase-admin.json` | Firebase service account key, mode 600 |
 
 ## 1. Target architecture
 
@@ -52,9 +60,14 @@ Internet ──► :80 Nginx ──► /api/*  ──► 127.0.0.1:4000  rocky-a
                                         └─► Firebase Auth / Storage (HTTPS, outbound)
 ```
 
-Only ports 22 (from the admin IP), 80 and 443 are reachable from outside. The API listens on
-port 4000 on all interfaces, but the security group does not open that port, so it is only
-reachable through Nginx. PostgreSQL listens on localhost only.
+Only ports 22 (from the admin IP), 80 and 443 are reachable from outside. The API and
+PostgreSQL are protected twice:
+
+- **API:** it binds to `127.0.0.1:4000` (the `HOST` variable, default `127.0.0.1`), so it does
+  not accept connections from other machines at all, and the security group does not open
+  port 4000 either. Only Nginx, on the same host, can reach it.
+- **PostgreSQL:** it listens on localhost only (ADR-009), and port 5432 is not opened in the
+  security group.
 
 ## 2. Launch the EC2 instance
 
@@ -63,10 +76,10 @@ In the AWS console: **EC2 → Instances → Launch instances**.
 | Setting        | Value                                                                       |
 | -------------- | --------------------------------------------------------------------------- |
 | Name           | `rocky`                                                                     |
-| AMI            | Ubuntu Server LTS (64-bit x86), the current LTS release                     |
-| Instance type  | A free-tier eligible type (`t3.micro` or `t2.micro`, depending on region)   |
+| AMI            | Ubuntu Server 26.04.1 LTS (64-bit x86)                                      |
+| Instance type  | `t3.small` (2 vCPU, 2 GiB RAM)                                              |
 | Key pair       | **Create new key pair** → type **ED25519**, format **.pem**                 |
-| Storage        | gp3, up to the free-tier limit (the default 8 GiB works; 20+ GiB is roomier) |
+| Storage        | 20 GiB gp3                                                                  |
 
 **Security group** (create a new one, e.g. `rocky-sg`), inbound rules:
 
@@ -127,8 +140,10 @@ sudo apt update && sudo apt upgrade -y
 sudo reboot   # only if the upgrade installed a new kernel; reconnect afterwards
 ```
 
-The free-tier instance has 1 GiB of RAM. `npm ci` and `nest build` can exceed that and get
-killed by the out-of-memory killer, so add a 2 GiB swap file:
+The `t3.small` has 2 GiB of RAM, shared by PostgreSQL, Nginx and the API. `npm ci` and
+`nest build` use a lot of memory for a short time; without swap the out-of-memory killer can
+stop the build or a running process. Add a 2 GiB swap file (the kernel's default swappiness
+is kept):
 
 ```bash
 sudo fallocate -l 2G /swapfile
@@ -136,10 +151,6 @@ sudo chmod 600 /swapfile          # swap can contain secrets from memory; root o
 sudo mkswap /swapfile
 sudo swapon /swapfile
 echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab   # keep it after a reboot
-
-# Prefer RAM and use swap only under pressure.
-echo 'vm.swappiness=10' | sudo tee /etc/sysctl.d/99-swappiness.conf
-sudo sysctl --system
 
 free -h   # Swap: 2.0Gi
 ```
@@ -177,7 +188,7 @@ Confirm it is not overridden:
 
 ```bash
 sudo grep -n "listen_addresses" /etc/postgresql/18/main/postgresql.conf
-sudo ss -ltnp | grep 5432   # must show 127.0.0.1:5432 (and [::1]:5432), never 0.0.0.0
+sudo ss -tlnp | grep 5432   # must show 127.0.0.1:5432 (and [::1]:5432), never 0.0.0.0
 ```
 
 The security group does not open 5432 either, so the database is protected twice.
@@ -216,13 +227,11 @@ pm2 --version
 ```
 
 PM2 writes logs to `~/.pm2/logs/` and never rotates them by default. `pm2-logrotate` prevents
-them from filling the disk:
+them from filling the disk. It is installed with its default settings:
 
 ```bash
 pm2 install pm2-logrotate
-pm2 set pm2-logrotate:max_size 10M   # rotate when a file reaches 10 MB
-pm2 set pm2-logrotate:retain 7       # keep 7 rotated files per log
-pm2 set pm2-logrotate:compress true  # gzip rotated files
+pm2 conf pm2-logrotate   # shows the active settings (max_size, retain, compress, ...)
 ```
 
 ## 9. Firebase service account
@@ -233,22 +242,23 @@ The file lives outside the repository, readable only by the application user.
 On the server, create the directory:
 
 ```bash
-mkdir -p ~/secrets
-chmod 700 ~/secrets
+mkdir -p ~/rocky/secrets
+chmod 700 ~/rocky/secrets
 ```
 
 From your Windows machine (PowerShell), copy the key over SSH. Replace the local path with
 wherever you keep the key; it never goes through Git:
 
 ```powershell
-scp -i .\<key-file>.pem <local-path-to-service-account>.json ubuntu@<elastic-ip>:~/secrets/firebase-adminsdk.json
+scp -i .\<key-file>.pem <local-path-to-service-account>.json ubuntu@<elastic-ip>:~/rocky/secrets/firebase-admin.json
 ```
 
 Back on the server:
 
 ```bash
-chmod 600 ~/secrets/firebase-adminsdk.json
-ls -l ~/secrets/   # -rw------- 1 ubuntu ubuntu ... firebase-adminsdk.json
+chmod 600 ~/rocky/secrets/firebase-admin.json
+ls -ld ~/rocky/secrets              # drwx------ ... /home/ubuntu/rocky/secrets
+ls -l ~/rocky/secrets/              # -rw------- 1 ubuntu ubuntu ... firebase-admin.json
 ```
 
 Do not `cat` the file to check it; the API validates it at startup (it must contain
@@ -258,15 +268,12 @@ Do not `cat` the file to check it; the API validates it at startup (it must cont
 ## 10. Clone the repository
 
 ```bash
-cd ~
-git clone <repository-url> rocky-api
-cd ~/rocky-api
+cd ~/rocky
+git clone https://github.com/ChathuniPG/rocky-api.git
+cd ~/rocky/rocky-api
 ```
 
-If the repository is private, add a read-only GitHub deploy key for the server instead of
-storing a personal access token on it.
-
-The rest of this guide assumes the repository is at `/home/ubuntu/rocky-api`.
+The rest of this guide assumes the repository is at `/home/ubuntu/rocky/rocky-api`.
 
 ## 11. Production `.env`
 
@@ -274,7 +281,7 @@ Both the Nest `ConfigModule` and `prisma.config.ts` read `.env` from the reposit
 Create it **before** `npm ci`, because the `postinstall` script runs `prisma generate`:
 
 ```bash
-cd ~/rocky-api
+cd ~/rocky/rocky-api
 nano .env
 chmod 600 .env
 ```
@@ -286,8 +293,9 @@ validates them and the API refuses to start if one is missing or invalid.
 | ------------------------------- | -------------------------------------------------------------------------------- |
 | `NODE_ENV`                      | `production`. PM2 also sets it (`ecosystem.config.cjs`), which takes precedence. |
 | `PORT`                          | Must match Nginx's `proxy_pass` port and `HEALTH_URL` in `redeploy.sh` (both 4000). |
+| `HOST`                          | Optional. The default `127.0.0.1` is what Nginx proxies to; do not set `0.0.0.0` here. |
 | `DATABASE_URL`                  | The `rocky` user and database from step 7, host `127.0.0.1`, port `5432`.        |
-| `FIREBASE_SERVICE_ACCOUNT_PATH` | Absolute path of the key from step 9 (inside `/home/ubuntu/secrets/`).           |
+| `FIREBASE_SERVICE_ACCOUNT_PATH` | Absolute path of the key from step 9: `/home/ubuntu/rocky/secrets/firebase-admin.json`. |
 | `FIREBASE_PROJECT_ID`           | Firebase console → Project settings → General.                                    |
 | `FIREBASE_STORAGE_BUCKET`       | Bare bucket name, no `gs://`.                                                     |
 | `FIREBASE_WEB_API_KEY`          | Firebase console → Project settings → General. Treat it as a secret.             |
@@ -310,7 +318,7 @@ Notes:
 The first deployment runs the same steps as `deploy/redeploy.sh`, by hand:
 
 ```bash
-cd ~/rocky-api
+cd ~/rocky/rocky-api
 
 # The Nest CLI (build) and the Prisma CLI (migrate) are devDependencies.
 npm ci --include=dev
@@ -331,6 +339,8 @@ Check that the API answers locally:
 curl -i http://127.0.0.1:4000/api/v1/health
 # HTTP/1.1 200 OK ... {"status":"ok","database":"up"}
 ```
+
+The startup line in `pm2 logs rocky-api` reads `Listening on http://127.0.0.1:4000/api/v1`.
 
 ## 13. Start on boot
 
@@ -356,7 +366,7 @@ Run `pm2 save` again whenever the process list changes (`redeploy.sh` does this)
 The commands are taken from the header of `deploy/nginx/rocky.conf`:
 
 ```bash
-cd ~/rocky-api
+cd ~/rocky/rocky-api
 sudo cp deploy/nginx/rocky.conf /etc/nginx/sites-available/rocky
 sudo ln -s /etc/nginx/sites-available/rocky /etc/nginx/sites-enabled/rocky
 # The default site also claims default_server on port 80; two default servers fail nginx -t.
@@ -397,9 +407,26 @@ On the server:
 ```bash
 pm2 status                           # rocky-api online, restarts not climbing
 pm2 logs rocky-api --lines 50        # Nest startup lines, no errors
-sudo ss -ltnp                        # 5432 on 127.0.0.1 only; nginx on :80
 free -h                              # swap active
 ```
+
+**Listening sockets.** Check which address each service is bound to:
+
+```bash
+sudo ss -tlnp
+```
+
+Expected (other columns trimmed):
+
+| Local address                    | Process  | Meaning                                    |
+| -------------------------------- | -------- | ------------------------------------------ |
+| `127.0.0.1:4000`                 | `node`   | API, loopback only (`HOST`)                |
+| `127.0.0.1:5432`, `[::1]:5432`   | `postgres` | PostgreSQL, loopback only (ADR-009)      |
+| `0.0.0.0:80`, `[::]:80`          | `nginx`  | Public entry point                         |
+| `0.0.0.0:22`, `[::]:22`          | `sshd`   | SSH (restricted by the security group)     |
+
+`0.0.0.0:4000`, `*:4000` or `0.0.0.0:5432` would mean the API or the database listens on all
+interfaces: check `HOST` in `.env` and `listen_addresses` in `postgresql.conf`.
 
 **Crash test** (automatic restart):
 
@@ -431,7 +458,7 @@ also confirms the Elastic IP survived the reboot.
 After changes are merged into `main`, on the server:
 
 ```bash
-bash ~/rocky-api/deploy/redeploy.sh
+bash ~/rocky/rocky-api/deploy/redeploy.sh
 ```
 
 The script (`set -euo pipefail`, stops on the first error):
@@ -448,7 +475,7 @@ The script (`set -euo pipefail`, stops on the first error):
 If `PORT` is not 4000, pass the health URL explicitly:
 
 ```bash
-HEALTH_URL=http://127.0.0.1:<port>/api/v1/health bash ~/rocky-api/deploy/redeploy.sh
+HEALTH_URL=http://127.0.0.1:<port>/api/v1/health bash ~/rocky/rocky-api/deploy/redeploy.sh
 ```
 
 Changes the script does **not** apply:
@@ -473,6 +500,8 @@ Common causes:
 - `Invalid environment configuration: ...` — a variable in `.env` is missing or invalid. The
   message names the variable but never prints its value. Compare with `.env.example`.
 - `COOKIE_SECURE must be true in production` — set `COOKIE_SECURE=true`.
+- `HOST must be an IPv4 or IPv6 address` — `HOST` must be an IP literal such as `127.0.0.1`,
+  not `localhost`; or remove the line to use the default.
 - Service account errors — check `FIREBASE_SERVICE_ACCOUNT_PATH` is absolute and correct,
   the file is owned by `ubuntu` with mode 600, and its project matches `FIREBASE_PROJECT_ID`.
 - Database connection errors — `systemctl status postgresql`, and check `DATABASE_URL`
@@ -482,8 +511,10 @@ Common causes:
 
 **Nginx returns 502 Bad Gateway / 504 Gateway Timeout**
 
-The API is not answering on port 4000. Check `pm2 status` and
-`curl -i http://127.0.0.1:4000/api/v1/health` on the server, then the PM2 logs above.
+The API is not answering on `127.0.0.1:4000`. Check `pm2 status` and
+`curl -i http://127.0.0.1:4000/api/v1/health` on the server, then the PM2 logs above. If the
+API is running but `sudo ss -tlnp` shows it on another address (e.g. `[::1]:4000`), `HOST` in
+`.env` does not match the `127.0.0.1` that Nginx proxies to.
 
 **Nginx does not start or reload**
 
