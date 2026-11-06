@@ -3,6 +3,8 @@
 | **Version** | **Date**    | **Author**        | **Status** |
 |-------------|-------------|-------------------|------------|
 | 0.1         | 04 Nov 2026 | Chathuni Gunasena | Draft      |
+| 0.2         | 05 Nov 2026 | Chathuni Gunasena | Align index definitions with query ordering.      |
+| 0.3         | 06 Nov 2026 | Chathuni Gunasena | Added ADR-011 (Service account loaded from file path).      |
 
 ## 1. Purpose
 
@@ -481,4 +483,12 @@ Figure 5 summarizes the route structure and how authentication controls access.
 
 - **Decision:** Keep oxlint and tighten its configuration to enforce no explicit any, no floating promises and consistent type imports. Prettier remains the formatter.
 
-- **Consequences:** Follows the framework default, adds no dependencies, and lints much faster. Oxlint’s ecosystem and type-aware mode are newer than ESLint’s; if a needed rule is missing or type-aware linting proves unreliable, the project can switch to ESLint with typescript-eslint.
+- **Consequences:** Follows the framework default, adds no dependencies, and lints much faster. Oxlint’s ecosystem and type-aware mode are newer than ESLint’s; if a needed rule is missing or type-aware linting proves unreliable, the project can switch to ESLint with typescript-eslint. 
+
+### ADR-011: Service account loaded from a file path
+
+- **Context:** The Admin SDK needs service account credentials, which include a multi-line private key. Storing the key inside an environment variable is error-prone (line breaks get corrupted) and makes the secret easy to leak through logs or shell history.
+
+- **Decision:** `.env` stores only the path to the JSON file (`FIREBASE_SERVICE_ACCOUNT_PATH`). Locally, the file lives outside the repository. On EC2, it lives in a directory readable only by the application user (permissions 600).
+
+- **Consequences:** No key-formatting issues, and the secret never appears in environment dumps. The file must be provisioned separately on each server, which is documented in the deployment steps. The app validates the file at startup.
