@@ -53,7 +53,9 @@ $RECYCLE.BIN/
 .env.*
 !.env.example
 
-# Firebase / Google service account credentials (NFR-SEC-04)
+# Firebase / Google service account credentials (NFR-SEC-04). ADR-011 keeps the key
+# outside the repository; these patterns are a safety net in case one is copied in.
+/secrets/
 *firebase-adminsdk*.json
 service-account*.json
 serviceAccount*.json
