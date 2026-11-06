@@ -11,14 +11,16 @@
 //   column of at least one index (or of the primary key / a unique constraint).
 //
 // Index direction: every list query orders by (created_at DESC, id DESC), where id breaks
-// ties for the pagination cursor (ADR-005). PostgreSQL can scan a B-tree index backwards,
+// ties for the pagination cursor (ADR-005); the conversation list uses
+// (last_message_at DESC, id DESC) instead. PostgreSQL can scan a B-tree index backwards,
 // so plain ascending indexes on exactly those columns serve the DESC order without a sort.
 //
-// Timestamp precision: tables that are cursor-paginated by created_at (posts, comments,
-// likes, saves, notifications, messages) store it as timestamptz(3), milliseconds. A JS
-// Date, and therefore the cursor, only holds milliseconds; with microsecond values, rows
-// created in the same millisecond as a cursor row would match neither `created_at < c`
-// nor `created_at = c` and be silently skipped (ADR-005). Other timestamps keep (6).
+// Timestamp precision: timestamps that are pagination cursors (created_at of posts,
+// comments, likes, saves, notifications and messages; conversations.last_message_at) are
+// timestamptz(3), milliseconds. A JS Date, and therefore the cursor, only holds
+// milliseconds; with microsecond values, rows in the same millisecond as a cursor row
+// would match neither `ts < c` nor `ts = c` and be silently skipped (ADR-005). Other
+// timestamps keep (6).
 //
 // CHECK constraints (non-negative counters, no self-follow, conversation user ordering,
 // non-blank bodies, username pattern) cannot be expressed in Prisma Schema Language. They
@@ -220,8 +222,9 @@ model Conversation {
   id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userAId       String    @map("user_a_id") @db.Uuid
   userBId       String    @map("user_b_id") @db.Uuid
-  // Null until the first message. Used to sort the inbox.
-  lastMessageAt DateTime? @map("last_message_at") @db.Timestamptz(6)
+  // Inbox sort key and pagination cursor: the creation time until the first message, then
+  // the latest message's created_at. Never null, so the keyset comparison is total.
+  lastMessageAt DateTime  @map("last_message_at") @db.Timestamptz(3)
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   userA    User      @relation("ConversationUserA", fields: [userAId], references: [id], onDelete: Cascade)
@@ -230,8 +233,10 @@ model Conversation {
 
   // Also covers the user_a_id foreign key.
   @@unique([userAId, userBId])
-  @@index([userBId])
-  @@index([lastMessageAt])
+  // The inbox query is "user_a_id = me OR user_b_id = me" ordered by (last_message_at, id):
+  // one index per side. The second also covers the user_b_id foreign key.
+  @@index([userAId, lastMessageAt, id])
+  @@index([userBId, lastMessageAt, id])
   @@map("conversations")
 }
 

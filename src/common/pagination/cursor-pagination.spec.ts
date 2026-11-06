@@ -9,6 +9,7 @@ import {
   keysetOrderBy,
   keysetWhere,
   toCursorPage,
+  toCursorPageBy,
   toKeyCursorPage,
 } from './cursor-pagination';
 
@@ -32,6 +33,11 @@ function isUsername(key: string): boolean {
 
 function keyOf(row: { key: string }): string {
   return row.key;
+}
+
+/** A row sorted by a timestamp other than createdAt, like a conversation. */
+function positionOf(row: { lastMessageAt: Date; id: string }): CursorPosition {
+  return { createdAt: row.lastMessageAt, id: row.id };
 }
 
 describe('cursor pagination', () => {
@@ -139,6 +145,24 @@ describe('cursor pagination', () => {
       expect(keysetWhere(position)).toEqual({
         OR: [{ createdAt: { lt: T1 } }, { createdAt: T1, id: { lt: ID_3 } }],
       });
+    });
+  });
+
+  describe('toCursorPageBy', () => {
+    const rows = [
+      { lastMessageAt: T1, id: ID_3 },
+      { lastMessageAt: T1, id: ID_2 },
+      { lastMessageAt: T0, id: ID_1 },
+    ];
+    it('encodes the position read by positionOf from the last returned row', () => {
+      const page = toCursorPageBy(rows, 2, positionOf, (row) => row.id);
+
+      expect(page.items).toEqual([ID_3, ID_2]);
+      expect(decodeCursor(page.nextCursor ?? undefined)).toEqual({ createdAt: T1, id: ID_2 });
+    });
+
+    it('returns no cursor on the last page', () => {
+      expect(toCursorPageBy(rows, 3, positionOf, (row) => row.id).nextCursor).toBeNull();
     });
   });
 

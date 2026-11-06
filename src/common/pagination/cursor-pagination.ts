@@ -153,7 +153,27 @@ export function toCursorPage<Row extends CursorPosition, Item>(
   limit: number,
   toItem: (row: Row) => Item,
 ): CursorPage<Item> {
-  return toPage(rows, limit, toItem, encodeCursor);
+  return toCursorPageBy(rows, limit, (row) => row, toItem);
+}
+
+/**
+ * Like {@link toCursorPage}, for rows whose sort timestamp is not `createdAt`, e.g. the
+ * conversation list ordered by (last_message_at DESC, id DESC). The cursor format is the
+ * same "timestamp + id"; only the column the timestamp comes from differs.
+ *
+ * @param rows - Rows in keyset order, at most `limit + 1`.
+ * @param limit - The requested page size.
+ * @param positionOf - Reads a row's sort key as a {@link CursorPosition}.
+ * @param toItem - Maps a row to its response item.
+ * @returns The first `limit` items and the cursor of the last one if more rows exist.
+ */
+export function toCursorPageBy<Row, Item>(
+  rows: readonly Row[],
+  limit: number,
+  positionOf: (row: Row) => CursorPosition,
+  toItem: (row: Row) => Item,
+): CursorPage<Item> {
+  return toPage(rows, limit, toItem, (row) => encodeCursor(positionOf(row)));
 }
 
 /*
