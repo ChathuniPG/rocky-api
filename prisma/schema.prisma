@@ -66,6 +66,9 @@ model User {
   displayName          String   @map("display_name") @db.VarChar(50)
   bio                  String?  @db.VarChar(160)
   avatarUrl            String?  @map("avatar_url")
+  // Firebase Storage object path of the current avatar, kept so the server can delete the
+  // object when the avatar is replaced or removed (FR-PROF-04). Never returned to clients.
+  avatarPath           String?  @map("avatar_path")
   notificationsEnabled Boolean  @default(true) @map("notifications_enabled")
   language             String   @default("en") @db.VarChar(5)
   createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -160,8 +163,9 @@ model Save {
 
   @@id([userId, postId])
   @@index([postId])
-  // Saved-posts tab: a user's saves, newest first.
-  @@index([userId, createdAt])
+  // Saved-posts tab: a user's saves, newest first. post_id is the cursor tie-breaker
+  // (saves have no id column), so it is the last index column (ADR-005).
+  @@index([userId, createdAt, postId])
   @@map("saves")
 }
 

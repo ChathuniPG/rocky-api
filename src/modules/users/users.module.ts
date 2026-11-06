@@ -1,0 +1,15 @@
+import { Module } from '@nestjs/common';
+import { UsersController } from './users.controller';
+import { UsersService } from './users.service';
+
+/**
+ * Profiles, profile updates, user and saved posts, search and follows (design §6).
+ * PrismaService and FirebaseStorageService come from the global PrismaModule and
+ * FirebaseModule. The post response shape (postSelect, PostResponseDto) and the media-path
+ * rules are plain functions and classes, so PostsModule and UploadsModule are not imported.
+ */
+@Module({
+  controllers: [UsersController],
+  providers: [UsersService],
+})
+export class UsersModule {}

@@ -14,6 +14,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { HealthModule } from './modules/health/health.module';
 import { PostsModule } from './modules/posts/posts.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
+import { UsersModule } from './modules/users/users.module';
 import { PrismaModule } from './prisma/prisma.module';
 
 /** Root module: wires infrastructure and feature modules together. */
@@ -33,6 +34,7 @@ import { PrismaModule } from './prisma/prisma.module';
     HealthModule,
     UploadsModule,
     PostsModule,
+    UsersModule,
   ],
   providers: [
     // Global guards run in the order listed. The throttler comes first, so a flood of
