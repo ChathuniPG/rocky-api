@@ -7,7 +7,9 @@ import {
   toCursorPage,
 } from '../../common/pagination/cursor-pagination';
 import type { PaginationQueryDto } from '../../common/pagination/pagination-query.dto';
+import { NotificationType } from '../../generated/prisma/enums';
 import { PrismaService } from '../../prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { commentSelect } from './comment-query';
 import { CommentResponseDto } from './dto/comment-response.dto';
 import type { CreateCommentDto } from './dto/create-comment.dto';
@@ -16,13 +18,17 @@ import { COMMENT_NOT_FOUND, NOT_COMMENT_AUTHOR } from './posts.constants';
 
 /**
  * Comments on posts (FR-FEED-06). posts.comment_count is denormalised (ADR-006) and is
- * changed in the same transaction as the comment row it counts.
+ * changed in the same transaction as the comment row it counts, as is the post author's
+ * COMMENT notification (FR-NOTF-01). Deleting a comment cascades to its notification.
  */
 @Injectable()
 export class CommentsService {
   private readonly logger = new Logger(CommentsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   /**
    * Returns one page of a post's comments, newest first (ADR-005).
@@ -49,7 +55,8 @@ export class CommentsService {
   }
 
   /**
-   * Adds a comment to a post and increments its comment count, in one transaction.
+   * Adds a comment to a post, increments its comment count and notifies the post author,
+   * in one transaction.
    *
    * @param authorId - Internal ID of the signed-in user.
    * @param postId - The post's ID.
@@ -70,15 +77,22 @@ export class CommentsService {
         data: { postId, authorId, body: dto.body },
         select: commentSelect,
       });
-      // ADR-006: counter updated atomically in the same transaction as the comment.
-      await tx.post.update({
+      // ADR-006: counter updated atomically in the same transaction as the comment. The
+      // same statement returns the author, the notification's recipient.
+      const post = await tx.post.update({
         where: { id: postId },
         data: { commentCount: { increment: 1 } },
-        select: { id: true },
+        select: { authorId: true },
+      });
+      await this.notifications.create(tx, {
+        type: NotificationType.COMMENT,
+        actorId: authorId,
+        recipientId: post.authorId,
+        postId,
+        commentId: comment.id,
       });
       return comment;
     });
-    // TODO(#11): notify the post author about the new comment.
     this.logger.log(`User ${authorId} commented ${row.id} on post ${postId}`);
     return CommentResponseDto.fromRow(row);
   }
