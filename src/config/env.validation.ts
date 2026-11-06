@@ -8,6 +8,7 @@ import {
   IsBoolean,
   IsEnum,
   IsInt,
+  IsIP,
   IsNotEmpty,
   IsString,
   IsUrl,
@@ -40,6 +41,16 @@ export class EnvironmentVariables {
   @Min(1)
   @Max(65535)
   PORT: number = 4000;
+
+  // Defence in depth beyond the EC2 security group: by default the API accepts connections
+  // only from the same machine, so on the server only Nginx can reach it. An IP literal is
+  // required rather than a hostname, because Node may resolve `localhost` to ::1 while
+  // Nginx proxies to 127.0.0.1. Use 0.0.0.0 only where all interfaces must listen, such as
+  // inside a container.
+  @IsIP(undefined, {
+    message: 'HOST must be an IPv4 or IPv6 address such as 127.0.0.1 (not a hostname)',
+  })
+  HOST: string = '127.0.0.1';
 
   // Required, no default: a missing database must stop the app at startup rather than
   // fail on the first query. `require_tld: false` allows hosts like localhost or

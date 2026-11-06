@@ -24,6 +24,7 @@ describe('validateEnv', () => {
 
     expect(env.NODE_ENV).toBe(NodeEnv.Development);
     expect(env.PORT).toBe(4000);
+    expect(env.HOST).toBe('127.0.0.1');
     expect(env.DATABASE_URL).toBe(DATABASE_URL);
   });
 
@@ -46,6 +47,25 @@ describe('validateEnv', () => {
     // Exact match: proves "70000" was converted to a number and failed only on @Max.
     expect(() => validateEnv({ ...required, PORT: '70000' })).toThrow(
       /^Invalid environment configuration:\n {2}- PORT: PORT must not be greater than 65535$/,
+    );
+  });
+
+  describe('HOST', () => {
+    it('defaults to 127.0.0.1', () => {
+      expect(validateEnv(required).HOST).toBe('127.0.0.1');
+    });
+
+    it.each(['127.0.0.1', '0.0.0.0', '::1', '::'])('accepts %s', (host) => {
+      expect(validateEnv({ ...required, HOST: host }).HOST).toBe(host);
+    });
+
+    it.each(['localhost', 'example.com', '127.0.0.256', '127.0.0.1:4000', ''])(
+      'rejects %p',
+      (host) => {
+        expect(() => validateEnv({ ...required, HOST: host })).toThrow(
+          /HOST must be an IPv4 or IPv6 address/,
+        );
+      },
     );
   });
 
