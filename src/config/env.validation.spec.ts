@@ -168,6 +168,40 @@ describe('validateEnv', () => {
     });
   });
 
+  describe('COOKIE_SECURE', () => {
+    it('defaults to true', () => {
+      expect(validateEnv(required).COOKIE_SECURE).toBe(true);
+    });
+
+    it.each([
+      ['true', true],
+      ['TRUE', true],
+      [' true ', true],
+      ['false', false],
+      ['False', false],
+    ])('parses %p as %p', (raw, expected) => {
+      expect(validateEnv({ ...required, COOKIE_SECURE: raw }).COOKIE_SECURE).toBe(expected);
+    });
+
+    it.each(['yes', '1', '0', ''])('rejects %p', (raw) => {
+      expect(() => validateEnv({ ...required, COOKIE_SECURE: raw })).toThrow(
+        /COOKIE_SECURE must be true or false/,
+      );
+    });
+
+    it('rejects false in production', () => {
+      expect(() =>
+        validateEnv({ ...required, NODE_ENV: 'production', COOKIE_SECURE: 'false' }),
+      ).toThrow(/COOKIE_SECURE must be true in production/);
+    });
+
+    it('accepts true in production', () => {
+      const env = validateEnv({ ...required, NODE_ENV: 'production', COOKIE_SECURE: 'true' });
+
+      expect(env.COOKIE_SECURE).toBe(true);
+    });
+  });
+
   describe('FIREBASE_WEB_API_KEY', () => {
     it('is required', () => {
       expect(() => validateEnv(without('FIREBASE_WEB_API_KEY'))).toThrow(/FIREBASE_WEB_API_KEY/);

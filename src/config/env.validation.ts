@@ -2,9 +2,10 @@
 // polyfill at bootstrap, but importing it here keeps the module usable on its own
 // (e.g. in unit tests that never start Nest).
 import 'reflect-metadata';
-import { plainToInstance } from 'class-transformer';
+import { plainToInstance, Transform } from 'class-transformer';
 import type { ValidationError } from 'class-validator';
 import {
+  IsBoolean,
   IsEnum,
   IsInt,
   IsNotEmpty,
@@ -78,6 +79,33 @@ export class EnvironmentVariables {
   // secret: it is never logged, and the error message below never contains the value.
   @Matches(/^\S+$/, { message: 'FIREBASE_WEB_API_KEY must be a non-empty value without spaces' })
   FIREBASE_WEB_API_KEY: string;
+
+  // ADR-003: sets the Secure flag on the auth cookies. Secure by default; only local
+  // development over plain http turns it off, and validateEnv rejects false in production.
+  // Parsed strictly: implicit conversion would turn the string "false" into true. It also
+  // runs before @Transform, so the raw string is read from `obj`, not from `value`.
+  @Transform(({ obj }: { obj: Record<string, unknown> }) => parseBooleanString(obj.COOKIE_SECURE))
+  @IsBoolean({ message: 'COOKIE_SECURE must be true or false' })
+  COOKIE_SECURE: boolean = true;
+}
+
+/**
+ * Converts the strings "true" and "false" (any case, surrounding spaces ignored) to
+ * booleans. Booleans pass through (the property default); anything else is returned
+ * unchanged so that @IsBoolean rejects it.
+ */
+function parseBooleanString(value: unknown): unknown {
+  if (typeof value !== 'string') {
+    return value;
+  }
+  const normalised = value.trim().toLowerCase();
+  if (normalised === 'true') {
+    return true;
+  }
+  if (normalised === 'false') {
+    return false;
+  }
+  return value;
 }
 
 /**
@@ -101,6 +129,13 @@ export function validateEnv(config: Record<string, unknown>): EnvironmentVariabl
   const errors = validateSync(validated, { skipMissingProperties: false });
   if (errors.length > 0) {
     throw new Error(`Invalid environment configuration:\n${formatErrors(errors)}`);
+  }
+
+  // ADR-003: auth cookies must never travel over plain http in production.
+  if (validated.NODE_ENV === NodeEnv.Production && !validated.COOKIE_SECURE) {
+    throw new Error(
+      'Invalid environment configuration:\n  - COOKIE_SECURE: COOKIE_SECURE must be true in production',
+    );
   }
 
   return validated;
