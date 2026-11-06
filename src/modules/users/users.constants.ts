@@ -32,6 +32,13 @@ export const MAX_BIO_LENGTH = 160;
 /** Matches the users_username_format CHECK constraint (FR-AUTH-02). */
 export const USERNAME_PATTERN = /^[a-z0-9_.]{3,30}$/;
 
+/** Longest search text (design: q is 1–50 characters, the display name limit). */
+export const MAX_SEARCH_QUERY_LENGTH = 50;
+
+/** FR-SRCH-03: all users, or only the users the searcher follows. */
+export const SEARCH_FILTERS = ['all', 'following'] as const;
+export type SearchFilter = (typeof SEARCH_FILTERS)[number];
+
 // Client-facing error messages, exported for tests.
 export const RESERVED_USERNAME = 'username is reserved';
 export const USER_NOT_FOUND = 'User not found';
@@ -40,3 +47,4 @@ export const INVALID_AVATAR_PATH = 'avatarPath must be an avatar path returned b
 export const AVATAR_NOT_OWNED = 'You can only use your own uploads as your avatar';
 export const AVATAR_NOT_FOUND = 'No uploaded image exists at avatarPath';
 export const UNSUPPORTED_AVATAR = 'The uploaded avatar is not a supported image';
+export const CANNOT_FOLLOW_SELF = 'You cannot follow yourself';

@@ -42,16 +42,18 @@ export function uniqueTestUserCredentials(prefix: string): TestUserCredentials {
  *
  * @param app - The running test application.
  * @param credentials - From {@link uniqueTestUserCredentials}.
+ * @param displayName - The display name to sign up with.
  * @returns The user's ID and ID-token cookie value.
  * @throws {Error} If sign-up does not return 201 with a rocky_id cookie.
  */
 export async function signUpTestUser(
   app: NestExpressApplication,
   credentials: TestUserCredentials,
+  displayName = 'E2E User',
 ): Promise<SignedUpTestUser> {
   const response = await request(app.getHttpServer())
     .post('/api/v1/auth/signup')
-    .send({ ...credentials, displayName: 'E2E User' })
+    .send({ ...credentials, displayName })
     .expect(201);
 
   const idToken = setCookieValue(response, 'rocky_id');

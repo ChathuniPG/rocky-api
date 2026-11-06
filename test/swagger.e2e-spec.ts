@@ -81,9 +81,45 @@ describe('Swagger (e2e)', () => {
       '/api/v1/uploads',
       '/api/v1/users/me',
       '/api/v1/users/me/saved',
+      '/api/v1/users/search',
+      '/api/v1/users/{id}/follow',
       '/api/v1/users/{username}',
       '/api/v1/users/{username}/posts',
     ]);
+  });
+
+  it('documents the users endpoints with their response types and parameters', () => {
+    expect(document).toMatchObject({
+      paths: {
+        '/api/v1/users/search': {
+          get: {
+            security: [{ rocky_id: [] }],
+            parameters: expect.arrayContaining([
+              expect.objectContaining({ name: 'q', in: 'query', required: true }),
+              expect.objectContaining({ name: 'filter', in: 'query', required: false }),
+              expect.objectContaining({ name: 'cursor', in: 'query', required: false }),
+            ]),
+            responses: { '200': json('UserSearchPageDto'), '400': json('ErrorResponseDto') },
+          },
+        },
+        '/api/v1/users/{username}': {
+          get: {
+            responses: { '200': json('ProfileResponseDto'), '404': json('ErrorResponseDto') },
+          },
+        },
+        '/api/v1/users/me': {
+          patch: {
+            responses: { '200': json('UserResponseDto'), '403': json('ErrorResponseDto') },
+          },
+        },
+        '/api/v1/users/{username}/posts': { get: { responses: { '200': json('PostPageDto') } } },
+        '/api/v1/users/me/saved': { get: { responses: { '200': json('PostPageDto') } } },
+        '/api/v1/users/{id}/follow': {
+          post: { responses: { '200': json('FollowStateDto'), '400': json('ErrorResponseDto') } },
+          delete: { responses: { '200': json('FollowStateDto'), '404': json('ErrorResponseDto') } },
+        },
+      },
+    });
   });
 
   it('documents POST /uploads as a multipart form with a binary file and a purpose', () => {

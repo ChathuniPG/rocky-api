@@ -9,11 +9,14 @@ import {
   type CursorPage,
   type CursorPosition,
   decodeCursor,
+  decodeKeyCursor,
   keysetOrderBy,
   keysetWhere,
   toCursorPage,
+  toKeyCursorPage,
 } from '../../common/pagination/cursor-pagination';
 import type { PaginationQueryDto } from '../../common/pagination/pagination-query.dto';
+import { escapeLikePattern } from '../../common/utils/like-pattern';
 import { FirebaseStorageService } from '../../firebase/firebase-storage.service';
 import type { Prisma, User } from '../../generated/prisma/client';
 import { MediaType } from '../../generated/prisma/enums';
@@ -24,8 +27,10 @@ import { type PostRow, postSelect } from '../posts/post-query';
 import { parseMediaPath } from '../uploads/media-path';
 import { mediaByContentType } from '../uploads/media-signature';
 import { ProfileResponseDto } from './dto/profile-response.dto';
+import type { SearchUsersQueryDto } from './dto/search-users-query.dto';
 import type { UpdateProfileDto } from './dto/update-profile.dto';
-import { profileSelect } from './user-query';
+import { UserSearchResultDto } from './dto/user-search-result.dto';
+import { profileSelect, searchResultSelect } from './user-query';
 import {
   AVATAR_NOT_FOUND,
   AVATAR_NOT_OWNED,
@@ -33,6 +38,7 @@ import {
   INVALID_AVATAR_PATH,
   UNSUPPORTED_AVATAR,
   USER_NOT_FOUND,
+  USERNAME_PATTERN,
 } from './users.constants';
 
 /** The avatar columns, written together so URL and path can never disagree. */
@@ -47,8 +53,8 @@ interface SavedPostRow extends CursorPosition {
 }
 
 /**
- * Profiles, profile updates, and the posts and saved posts of a user (FR-PROF-01 to
- * FR-PROF-04, FR-SET-02, FR-SET-03).
+ * Profiles, profile updates, the posts and saved posts of a user, and user search
+ * (FR-PROF-01 to FR-PROF-04, FR-SRCH-01, FR-SRCH-03, FR-SET-02, FR-SET-03).
  */
 @Injectable()
 export class UsersService {
@@ -177,6 +183,48 @@ export class UsersService {
       post: save.post,
     }));
     return toCursorPage(rows, query.limit, (row) => PostResponseDto.fromRow(row.post));
+  }
+
+  /**
+   * Searches other users by username or display name: case-insensitive partial match
+   * (FR-SRCH-01), optionally only users the searcher follows (FR-SRCH-03). Results are
+   * ordered by username, which is unique, so the username alone is the cursor.
+   *
+   * Matching is a sequential ILIKE scan of users; there is no trigram index, which is
+   * fine at this project's scale (one page is read per keystroke after debouncing).
+   *
+   * @param viewerId - Internal ID of the signed-in user, excluded from the results.
+   * @param query - Validated, trimmed search text, filter, cursor and page size.
+   * @returns The page and the cursor of the next one.
+   * @throws {BadRequestException} If the cursor is invalid.
+   */
+  async search(
+    viewerId: string,
+    query: SearchUsersQueryDto,
+  ): Promise<CursorPage<UserSearchResultDto>> {
+    const after = decodeKeyCursor(query.cursor, (key) => USERNAME_PATTERN.test(key));
+    // Prisma passes `contains` to ILIKE without escaping % and _ (proven in
+    // test/users.e2e-spec.ts), so they are escaped here to match literally.
+    const pattern = escapeLikePattern(query.q);
+    const rows = await this.prisma.user.findMany({
+      where: {
+        AND: [
+          { id: { not: viewerId } },
+          {
+            OR: [
+              { username: { contains: pattern, mode: 'insensitive' } },
+              { displayName: { contains: pattern, mode: 'insensitive' } },
+            ],
+          },
+          query.filter === 'following' ? { followers: { some: { followerId: viewerId } } } : {},
+          after === undefined ? {} : { username: { gt: after } },
+        ],
+      },
+      orderBy: { username: 'asc' },
+      take: query.limit + 1,
+      select: searchResultSelect(viewerId),
+    });
+    return toKeyCursorPage(rows, query.limit, (row) => row.username, UserSearchResultDto.fromRow);
   }
 
   private async findUserIdByUsername(username: string): Promise<string> {

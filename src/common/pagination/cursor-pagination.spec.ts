@@ -2,11 +2,14 @@ import { BadRequestException } from '@nestjs/common';
 import {
   type CursorPosition,
   decodeCursor,
+  decodeKeyCursor,
   encodeCursor,
+  encodeKeyCursor,
   INVALID_CURSOR_MESSAGE,
   keysetOrderBy,
   keysetWhere,
   toCursorPage,
+  toKeyCursorPage,
 } from './cursor-pagination';
 
 const ID_1 = '0b6f6a52-1c1e-4c43-9a2f-1d1b2f3c4d5e';
@@ -21,6 +24,14 @@ function toItem(row: CursorPosition): string {
 
 function base64url(text: string): string {
   return Buffer.from(text).toString('base64url');
+}
+
+function isUsername(key: string): boolean {
+  return /^[a-z0-9_.]{3,30}$/.test(key);
+}
+
+function keyOf(row: { key: string }): string {
+  return row.key;
 }
 
 describe('cursor pagination', () => {
@@ -128,6 +139,44 @@ describe('cursor pagination', () => {
       expect(keysetWhere(position)).toEqual({
         OR: [{ createdAt: { lt: T1 } }, { createdAt: T1, id: { lt: ID_3 } }],
       });
+    });
+  });
+
+  describe('encodeKeyCursor / decodeKeyCursor', () => {
+    it('round-trips a key', () => {
+      expect(decodeKeyCursor(encodeKeyCursor('alice_01'), isUsername)).toBe('alice_01');
+    });
+
+    it('returns undefined for the first page', () => {
+      expect(decodeKeyCursor(undefined, isUsername)).toBeUndefined();
+    });
+
+    it.each([
+      ['non-base64url characters', 'abc$'],
+      ['invalid JSON', base64url('{')],
+      ['a missing key', base64url('{"x":"alice"}')],
+      ['a non-string key', base64url('{"k":5}')],
+      ['a key the caller rejects', base64url('{"k":"Robert\'); DROP TABLE users;--"}')],
+      ['a timestamp cursor', encodeCursor({ createdAt: T1, id: ID_1 })],
+    ])('rejects %s with 400', (_name, cursor) => {
+      expect(() => decodeKeyCursor(cursor, isUsername)).toThrow(BadRequestException);
+      expect(() => decodeKeyCursor(cursor, isUsername)).toThrow(INVALID_CURSOR_MESSAGE);
+    });
+  });
+
+  describe('toKeyCursorPage', () => {
+    const rows = [{ key: 'alice' }, { key: 'bob' }, { key: 'carol' }];
+
+    it('returns the first limit items and a cursor of the last returned key', () => {
+      const page = toKeyCursorPage(rows, 2, keyOf, keyOf);
+
+      expect(page.items).toEqual(['alice', 'bob']);
+      expect(decodeKeyCursor(page.nextCursor ?? undefined, () => true)).toBe('bob');
+    });
+
+    it('returns no cursor on the last page', () => {
+      expect(toKeyCursorPage(rows, 3, keyOf, keyOf).nextCursor).toBeNull();
+      expect(toKeyCursorPage([], 3, keyOf, keyOf)).toEqual({ items: [], nextCursor: null });
     });
   });
 });

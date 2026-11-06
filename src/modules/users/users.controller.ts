@@ -1,4 +1,15 @@
-import { Body, Controller, Get, HttpStatus, Param, Patch, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { ApiCookieAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ID_TOKEN_COOKIE } from '../../common/auth/auth-cookies';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -7,9 +18,14 @@ import { ApiErrorResponses } from '../../common/swagger/api-error-responses.deco
 import type { User } from '../../generated/prisma/client';
 import { UserResponseDto } from '../auth/dto/user-response.dto';
 import { PostPageDto } from '../posts/dto/post-response.dto';
+import { FollowStateDto } from './dto/follow-state.dto';
 import { ProfileResponseDto } from './dto/profile-response.dto';
+import { SearchUsersQueryDto } from './dto/search-users-query.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { UserIdParamDto } from './dto/user-id-param.dto';
+import { UserSearchPageDto } from './dto/user-search-result.dto';
 import { UsernameParamDto } from './dto/username-param.dto';
+import { FollowsService } from './follows.service';
 import { UsersService } from './users.service';
 
 /** Errors every user endpoint can return: auth, rate limit and backing-service outages. */
@@ -21,20 +37,51 @@ const COMMON_ERRORS = [
 ] as const;
 
 const USER_NOT_FOUND = { status: HttpStatus.NOT_FOUND, description: 'No user has this username.' };
+const USER_ID_NOT_FOUND = { status: HttpStatus.NOT_FOUND, description: 'No user has this ID.' };
+const INVALID_FOLLOW = {
+  status: HttpStatus.BAD_REQUEST,
+  description: 'The ID is not a UUID, or it is your own ID.',
+};
 
 /**
  * User endpoints (design §5.2). Every route requires authentication.
  *
  * Route order matters: Nest (Express) matches routes in declaration order, so the fixed
- * paths under `me` are declared before `:username`, which would
- * otherwise capture them. Those words are also reserved usernames, so no profile can
- * ever be shadowed by them.
+ * paths `search` and `me/...` are declared before `:username`, which would otherwise
+ * capture them. Those words are also reserved usernames, so no profile can ever be
+ * shadowed by them.
  */
 @ApiTags('Users')
 @ApiCookieAuth(ID_TOKEN_COOKIE)
 @Controller('users')
 export class UsersController {
-  constructor(private readonly users: UsersService) {}
+  constructor(
+    private readonly users: UsersService,
+    private readonly follows: FollowsService,
+  ) {}
+
+  /** Searches other users by username or display name (FR-SRCH-01, FR-SRCH-03). */
+  @Get('search')
+  @ApiOperation({
+    summary: 'Search users by username or display name (cursor-paginated)',
+    description:
+      'Case-insensitive partial match; you are never in your own results. Ordered by ' +
+      'username. Pass `nextCursor` from a page as `cursor` to get the next one (ADR-005).',
+  })
+  @ApiOkResponse({ type: UserSearchPageDto })
+  @ApiErrorResponses(
+    {
+      status: HttpStatus.BAD_REQUEST,
+      description: 'q is missing, empty or too long, or the filter, cursor or limit is invalid.',
+    },
+    ...COMMON_ERRORS,
+  )
+  search(
+    @Query() query: SearchUsersQueryDto,
+    @CurrentUser() user: User,
+  ): Promise<UserSearchPageDto> {
+    return this.users.search(user.id, query);
+  }
 
   /** The signed-in user's saved posts (FR-PROF-03). Only ever the caller's own. */
   @Get('me/saved')
@@ -114,5 +161,31 @@ export class UsersController {
     @CurrentUser() user: User,
   ): Promise<PostPageDto> {
     return this.users.listUserPosts(user.id, params.username, query);
+  }
+
+  /** Follows a user (FR-PROF-05). Idempotent: following again changes nothing. */
+  @Post(':id/follow')
+  // 200, not 201: a repeated call creates nothing, and both calls return the same state.
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Follow a user',
+    description: 'Idempotent: following a user you already follow returns the same state.',
+  })
+  @ApiOkResponse({ type: FollowStateDto, description: 'You follow the user.' })
+  @ApiErrorResponses(INVALID_FOLLOW, USER_ID_NOT_FOUND, ...COMMON_ERRORS)
+  follow(@Param() params: UserIdParamDto, @CurrentUser() user: User): Promise<FollowStateDto> {
+    return this.follows.follow(user.id, params.id);
+  }
+
+  /** Unfollows a user (FR-PROF-05). Idempotent: unfollowing a non-followed user is a no-op. */
+  @Delete(':id/follow')
+  @ApiOperation({
+    summary: 'Unfollow a user',
+    description: 'Idempotent: unfollowing a user you do not follow returns the same state.',
+  })
+  @ApiOkResponse({ type: FollowStateDto, description: 'You do not follow the user.' })
+  @ApiErrorResponses(INVALID_FOLLOW, USER_ID_NOT_FOUND, ...COMMON_ERRORS)
+  unfollow(@Param() params: UserIdParamDto, @CurrentUser() user: User): Promise<FollowStateDto> {
+    return this.follows.unfollow(user.id, params.id);
   }
 }

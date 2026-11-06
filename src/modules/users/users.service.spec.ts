@@ -3,7 +3,9 @@ import { Test } from '@nestjs/testing';
 import { buildUser } from '../../../test/fixtures/user.fixture';
 import {
   decodeCursor,
+  decodeKeyCursor,
   encodeCursor,
+  encodeKeyCursor,
   INVALID_CURSOR_MESSAGE,
 } from '../../common/pagination/cursor-pagination';
 import { PaginationQueryDto } from '../../common/pagination/pagination-query.dto';
@@ -16,8 +18,9 @@ import type { User } from '../../generated/prisma/client';
 import { MediaType } from '../../generated/prisma/enums';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { PostRow } from '../posts/post-query';
+import { SearchUsersQueryDto } from './dto/search-users-query.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
-import type { ProfileRow } from './user-query';
+import type { ProfileRow, SearchResultRow } from './user-query';
 import {
   AVATAR_NOT_FOUND,
   AVATAR_NOT_OWNED,
@@ -78,6 +81,23 @@ function pageQuery(limit: number, cursor?: string): PaginationQueryDto {
   return query;
 }
 
+function searchQuery(
+  q: string,
+  overrides: Partial<Omit<SearchUsersQueryDto, 'q'>> = {},
+): SearchUsersQueryDto {
+  return Object.assign(new SearchUsersQueryDto(), { q, ...overrides });
+}
+
+function searchRow(username: string, followedByViewer = false): SearchResultRow {
+  return {
+    id: OTHER_USER_ID,
+    username,
+    displayName: username.toUpperCase(),
+    avatarUrl: null,
+    followers: followedByViewer ? [{ followerId: USER_ID }] : [],
+  };
+}
+
 interface SaveRow {
   createdAt: Date;
   postId: string;
@@ -89,6 +109,7 @@ describe('UsersService', () => {
     user: {
       findUnique: jest.fn<Promise<ProfileRow | { id: string } | null>, [{ select: object }]>(),
       update: jest.fn<Promise<User>, [{ data: Record<string, unknown> }]>(),
+      findMany: jest.fn<Promise<SearchResultRow[]>, [unknown]>(),
     },
     post: { findMany: jest.fn<Promise<PostRow[]>, [unknown]>() },
     save: { findMany: jest.fn<Promise<SaveRow[]>, [unknown]>() },
@@ -483,6 +504,124 @@ describe('UsersService', () => {
 
       await expect(promise).rejects.toBeInstanceOf(BadRequestException);
       expect(prisma.save.findMany).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('search', () => {
+    it('matches username or display name case-insensitively, excluding the viewer', async () => {
+      prisma.user.findMany.mockResolvedValue([]);
+
+      const page = await service.search(USER_ID, searchQuery('ali'));
+
+      expect(page).toEqual({ items: [], nextCursor: null });
+      expect(prisma.user.findMany).toHaveBeenCalledWith({
+        where: {
+          AND: [
+            { id: { not: USER_ID } },
+            {
+              OR: [
+                { username: { contains: 'ali', mode: 'insensitive' } },
+                { displayName: { contains: 'ali', mode: 'insensitive' } },
+              ],
+            },
+            {},
+            {},
+          ],
+        },
+        orderBy: { username: 'asc' },
+        take: 16,
+        select: expect.objectContaining({
+          followers: { where: { followerId: USER_ID }, select: { followerId: true }, take: 1 },
+        }),
+      });
+    });
+
+    it('escapes LIKE wildcards so % and _ match literally', async () => {
+      prisma.user.findMany.mockResolvedValue([]);
+
+      await service.search(USER_ID, searchQuery('a_b%c'));
+
+      expect(prisma.user.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            AND: expect.arrayContaining([
+              {
+                OR: [
+                  { username: { contains: 'a\\_b\\%c', mode: 'insensitive' } },
+                  { displayName: { contains: 'a\\_b\\%c', mode: 'insensitive' } },
+                ],
+              },
+            ]),
+          }),
+        }),
+      );
+    });
+
+    it('limits the results to followed users with filter=following', async () => {
+      prisma.user.findMany.mockResolvedValue([]);
+
+      await service.search(USER_ID, searchQuery('ali', { filter: 'following' }));
+
+      expect(prisma.user.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            AND: expect.arrayContaining([{ followers: { some: { followerId: USER_ID } } }]),
+          }),
+        }),
+      );
+    });
+
+    it('continues after the username in the cursor', async () => {
+      prisma.user.findMany.mockResolvedValue([]);
+
+      await service.search(USER_ID, searchQuery('ali', { cursor: encodeKeyCursor('alice') }));
+
+      expect(prisma.user.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            AND: expect.arrayContaining([{ username: { gt: 'alice' } }]),
+          }),
+        }),
+      );
+    });
+
+    it('maps results with isFollowing and returns a username cursor', async () => {
+      prisma.user.findMany.mockResolvedValue([
+        searchRow('alice', true),
+        searchRow('alina'),
+        searchRow('alison'),
+      ]);
+
+      const page = await service.search(USER_ID, searchQuery('ali', { limit: 2 }));
+
+      expect(page.items).toEqual([
+        {
+          id: OTHER_USER_ID,
+          username: 'alice',
+          displayName: 'ALICE',
+          avatarUrl: null,
+          isFollowing: true,
+        },
+        {
+          id: OTHER_USER_ID,
+          username: 'alina',
+          displayName: 'ALINA',
+          avatarUrl: null,
+          isFollowing: false,
+        },
+      ]);
+      expect(decodeKeyCursor(page.nextCursor ?? undefined, () => true)).toBe('alina');
+    });
+
+    it.each([
+      ['garbage', 'not-a-cursor'],
+      ['a timestamp cursor', encodeCursor({ createdAt: CREATED_AT, id: POST_ID })],
+      ['a key that is not a username', encodeKeyCursor("x' OR 1=1")],
+    ])('rejects %s as cursor with 400 without querying', async (_name, cursor) => {
+      const promise = service.search(USER_ID, searchQuery('ali', { cursor }));
+
+      await expect(promise).rejects.toThrow(INVALID_CURSOR_MESSAGE);
+      expect(prisma.user.findMany).not.toHaveBeenCalled();
     });
   });
 });
