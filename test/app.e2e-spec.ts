@@ -28,6 +28,13 @@ describe('Application bootstrap (e2e)', () => {
   it('boots the full module graph and returns a JSON 404 for an unknown route', async () => {
     const response = await request(app.getHttpServer()).get('/api/v1/does-not-exist').expect(404);
 
-    expect(response.body).toMatchObject({ statusCode: 404 });
+    // The global exception filter's body (design §5.1).
+    expect(response.body).toEqual({
+      statusCode: 404,
+      error: 'Not Found',
+      message: expect.any(String) as unknown,
+      path: '/api/v1/does-not-exist',
+      timestamp: expect.any(String) as unknown,
+    });
   });
 });
