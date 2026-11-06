@@ -70,10 +70,14 @@ describe('Swagger (e2e)', () => {
       '/api/v1/auth/me',
       '/api/v1/auth/refresh',
       '/api/v1/auth/signup',
+      '/api/v1/comments/{id}',
       '/api/v1/health',
       '/api/v1/posts',
       '/api/v1/posts/feed',
       '/api/v1/posts/{id}',
+      '/api/v1/posts/{id}/comments',
+      '/api/v1/posts/{id}/like',
+      '/api/v1/posts/{id}/save',
       '/api/v1/uploads',
     ]);
   });
