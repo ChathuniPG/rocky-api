@@ -21,12 +21,14 @@ import { Prisma } from '../../generated/prisma/client';
 import { MediaType } from '../../generated/prisma/enums';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreatePostDto } from './dto/create-post.dto';
+import { UpdatePostDto } from './dto/update-post.dto';
 import type { PostRow } from './post-query';
 import {
   INVALID_MEDIA_PATH,
   MEDIA_ALREADY_USED,
   MEDIA_NOT_FOUND,
   MEDIA_NOT_OWNED,
+  NOT_POST_OWNER,
   POST_NOT_FOUND,
   UNSUPPORTED_MEDIA,
 } from './posts.constants';
@@ -82,18 +84,25 @@ describe('PostsService', () => {
     post: {
       create: jest.fn<Promise<PostRow>, [unknown]>(),
       findMany: jest.fn<Promise<PostRow[]>, [unknown]>(),
-      findUnique: jest.fn<Promise<PostRow | { id: string } | null>, [unknown]>(),
+      findUnique: jest.fn<
+        Promise<PostRow | { id: string } | { authorId: string; mediaPath: string } | null>,
+        [unknown]
+      >(),
+      update: jest.fn<Promise<PostRow>, [unknown]>(),
+      delete: jest.fn<Promise<unknown>, [unknown]>(),
     },
   };
   const storage = {
     getObjectMetadata: jest.fn<Promise<StorageObjectMetadata>, [string]>(),
     getDownloadUrl: jest.fn<Promise<string>, [string]>(),
+    deleteObject: jest.fn<Promise<void>, [string]>(),
   };
   let service: PostsService;
 
   beforeEach(async () => {
     jest.resetAllMocks();
     jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
     prisma.post.findUnique.mockResolvedValue(null);
     prisma.post.create.mockResolvedValue(postRow());
     storage.getObjectMetadata.mockResolvedValue({
@@ -354,6 +363,91 @@ describe('PostsService', () => {
 
       await expect(promise).rejects.toBeInstanceOf(NotFoundException);
       await expect(promise).rejects.toThrow(POST_NOT_FOUND);
+    });
+  });
+
+  describe('updateCaption', () => {
+    const update = new UpdatePostDto();
+    update.caption = 'edited';
+
+    it("updates the author's own post and returns it", async () => {
+      prisma.post.findUnique.mockResolvedValue({ authorId: USER_ID, mediaPath: PNG_PATH });
+      prisma.post.update.mockResolvedValue(postRow({ caption: 'edited' }));
+
+      const result = await service.updateCaption(USER_ID, POST_ID, update);
+
+      expect(result.caption).toBe('edited');
+      expect(prisma.post.update).toHaveBeenCalledWith({
+        where: { id: POST_ID },
+        data: { caption: 'edited' },
+        select: expect.objectContaining({ id: true }),
+      });
+    });
+
+    it("rejects another user's post with 403 without updating", async () => {
+      prisma.post.findUnique.mockResolvedValue({ authorId: OTHER_USER_ID, mediaPath: PNG_PATH });
+
+      const promise = service.updateCaption(USER_ID, POST_ID, update);
+
+      await expect(promise).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(promise).rejects.toThrow(NOT_POST_OWNER);
+      expect(prisma.post.update).not.toHaveBeenCalled();
+    });
+
+    it('throws 404 for a missing post', async () => {
+      await expect(service.updateCaption(USER_ID, POST_ID, update)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      expect(prisma.post.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('delete', () => {
+    beforeEach(() => {
+      prisma.post.findUnique.mockResolvedValue({ authorId: USER_ID, mediaPath: PNG_PATH });
+      prisma.post.delete.mockResolvedValue({});
+      storage.deleteObject.mockResolvedValue(undefined);
+    });
+
+    it('deletes the row, then the media object', async () => {
+      await service.delete(USER_ID, POST_ID);
+
+      expect(prisma.post.delete).toHaveBeenCalledWith({ where: { id: POST_ID } });
+      expect(storage.deleteObject).toHaveBeenCalledWith(PNG_PATH);
+      expect(prisma.post.delete.mock.invocationCallOrder[0]).toBeLessThan(
+        storage.deleteObject.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('still succeeds, and logs, when the Storage delete fails', async () => {
+      storage.deleteObject.mockRejectedValue(new FirebaseUnavailableError());
+      const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+
+      await expect(service.delete(USER_ID, POST_ID)).resolves.toBeUndefined();
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining(PNG_PATH));
+    });
+
+    it('does not touch Storage when the row delete fails', async () => {
+      prisma.post.delete.mockRejectedValue(new Error('database down'));
+
+      await expect(service.delete(USER_ID, POST_ID)).rejects.toThrow('database down');
+      expect(storage.deleteObject).not.toHaveBeenCalled();
+    });
+
+    it("rejects another user's post with 403, deleting nothing", async () => {
+      prisma.post.findUnique.mockResolvedValue({ authorId: OTHER_USER_ID, mediaPath: PNG_PATH });
+
+      await expect(service.delete(USER_ID, POST_ID)).rejects.toBeInstanceOf(ForbiddenException);
+      expect(prisma.post.delete).not.toHaveBeenCalled();
+      expect(storage.deleteObject).not.toHaveBeenCalled();
+    });
+
+    it('throws 404 for a missing post, deleting nothing', async () => {
+      prisma.post.findUnique.mockResolvedValue(null);
+
+      await expect(service.delete(USER_ID, POST_ID)).rejects.toBeInstanceOf(NotFoundException);
+      expect(prisma.post.delete).not.toHaveBeenCalled();
+      expect(storage.deleteObject).not.toHaveBeenCalled();
     });
   });
 });

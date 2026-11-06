@@ -3,6 +3,7 @@ export const MAX_CAPTION_LENGTH = 2200;
 
 // Client-facing error messages, exported for tests.
 export const POST_NOT_FOUND = 'Post not found';
+export const NOT_POST_OWNER = 'You can only modify your own posts';
 export const INVALID_MEDIA_PATH = 'mediaPath must be a post media path returned by POST /uploads';
 export const MEDIA_NOT_OWNED = 'You can only create posts from your own uploads';
 export const MEDIA_NOT_FOUND = 'No uploaded media exists at mediaPath';

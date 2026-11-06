@@ -5,6 +5,7 @@ import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/app.setup';
 import { FirebaseStorageService } from '../src/firebase/firebase-storage.service';
 import { MAX_VIDEO_BYTES } from '../src/modules/uploads/uploads.constants';
+import { TINY_PNG } from './fixtures/media.fixture';
 import { cookieHeader } from './helpers/cookies';
 import {
   deleteTestUser,
@@ -21,12 +22,6 @@ import {
 // user afterwards, even if a step fails.
 
 jest.setTimeout(60_000);
-
-/** A real 1x1 transparent PNG (67 bytes). */
-const TINY_PNG = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
-  'base64',
-);
 
 const credentials = uniqueTestUserCredentials('uploads');
 

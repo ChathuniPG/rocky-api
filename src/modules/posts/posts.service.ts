@@ -22,12 +22,14 @@ import { parseMediaPath } from '../uploads/media-path';
 import { mediaByContentType } from '../uploads/media-signature';
 import type { CreatePostDto } from './dto/create-post.dto';
 import { PostResponseDto } from './dto/post-response.dto';
+import type { UpdatePostDto } from './dto/update-post.dto';
 import { postSelect } from './post-query';
 import {
   INVALID_MEDIA_PATH,
   MEDIA_ALREADY_USED,
   MEDIA_NOT_FOUND,
   MEDIA_NOT_OWNED,
+  NOT_POST_OWNER,
   POST_NOT_FOUND,
   UNSUPPORTED_MEDIA,
 } from './posts.constants';
@@ -133,6 +135,80 @@ export class PostsService {
       throw new NotFoundException(POST_NOT_FOUND);
     }
     return PostResponseDto.fromRow(row);
+  }
+
+  /**
+   * Replaces a post's caption (FR-POST-04).
+   *
+   * @param viewerId - Internal ID of the signed-in user; must be the author.
+   * @param postId - The post's ID.
+   * @param dto - The validated, trimmed caption.
+   * @returns The updated post.
+   * @throws {NotFoundException} If no post has this ID.
+   * @throws {ForbiddenException} If the user is not the author (NFR-SEC-02).
+   */
+  async updateCaption(
+    viewerId: string,
+    postId: string,
+    dto: UpdatePostDto,
+  ): Promise<PostResponseDto> {
+    await this.findOwnedPost(viewerId, postId);
+    // A post deleted between the check and the update raises P2025, which the global
+    // exception filter turns into 404.
+    const row = await this.prisma.post.update({
+      where: { id: postId },
+      data: { caption: dto.caption },
+      select: postSelect(viewerId),
+    });
+    return PostResponseDto.fromRow(row);
+  }
+
+  /**
+   * Deletes a post (FR-POST-05), then its media object. Likes, saves, comments and
+   * notifications of the post are removed by ON DELETE CASCADE in the same statement.
+   * The Storage delete is best-effort: once the row is gone the post no longer exists
+   * for anyone, so a Storage failure is logged rather than failing the request.
+   *
+   * @param viewerId - Internal ID of the signed-in user; must be the author.
+   * @param postId - The post's ID.
+   * @throws {NotFoundException} If no post has this ID.
+   * @throws {ForbiddenException} If the user is not the author (NFR-SEC-02).
+   */
+  async delete(viewerId: string, postId: string): Promise<void> {
+    const { mediaPath } = await this.findOwnedPost(viewerId, postId);
+    // Row first, object second: the reverse order could leave a visible post whose media
+    // is gone. The unique media_path guarantees no other post uses this object.
+    await this.prisma.post.delete({ where: { id: postId } });
+    this.logger.log(`User ${viewerId} deleted post ${postId}`);
+    await this.deleteMediaBestEffort(mediaPath);
+  }
+
+  /** Loads the fields needed for an ownership check; 404 before 403. */
+  private async findOwnedPost(
+    viewerId: string,
+    postId: string,
+  ): Promise<{ authorId: string; mediaPath: string }> {
+    const post = await this.prisma.post.findUnique({
+      where: { id: postId },
+      select: { authorId: true, mediaPath: true },
+    });
+    if (!post) {
+      throw new NotFoundException(POST_NOT_FOUND);
+    }
+    if (post.authorId !== viewerId) {
+      throw new ForbiddenException(NOT_POST_OWNER);
+    }
+    return post;
+  }
+
+  private async deleteMediaBestEffort(mediaPath: string): Promise<void> {
+    try {
+      await this.storage.deleteObject(mediaPath);
+    } catch {
+      // FirebaseStorageService already logged the error code; this names the orphan so it
+      // can be removed by hand or by the future cleanup job (ADR-007).
+      this.logger.warn(`Could not delete media ${mediaPath} of a deleted post; it is orphaned`);
+    }
   }
 
   /**
