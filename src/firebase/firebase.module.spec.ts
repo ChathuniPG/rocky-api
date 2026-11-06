@@ -5,6 +5,7 @@ import { Logger } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { cert, deleteApp, initializeApp } from 'firebase-admin/app';
+import { FirebaseAuthRestClient } from './firebase-auth-rest.client';
 import { FirebaseAuthService } from './firebase-auth.service';
 import { FirebaseStorageService } from './firebase-storage.service';
 import { FIREBASE_APP, FIREBASE_APP_NAME } from './firebase.constants';
@@ -62,6 +63,7 @@ describe('FirebaseModule', () => {
       FIREBASE_SERVICE_ACCOUNT_PATH: keyPath,
       FIREBASE_PROJECT_ID: PROJECT_ID,
       FIREBASE_STORAGE_BUCKET: BUCKET,
+      FIREBASE_WEB_API_KEY: 'AIzaFakeKeyForUnitTests0000000000000000',
       ...overrides,
     };
     return Test.createTestingModule({
@@ -92,6 +94,7 @@ describe('FirebaseModule', () => {
     const moduleRef = await compile();
 
     expect(moduleRef.get(FirebaseAuthService)).toBeInstanceOf(FirebaseAuthService);
+    expect(moduleRef.get(FirebaseAuthRestClient)).toBeInstanceOf(FirebaseAuthRestClient);
     expect(moduleRef.get(FirebaseStorageService)).toBeInstanceOf(FirebaseStorageService);
   });
 

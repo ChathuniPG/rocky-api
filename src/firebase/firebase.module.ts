@@ -1,6 +1,7 @@
 import { Global, Inject, Module, type OnApplicationShutdown } from '@nestjs/common';
 import { type App, deleteApp } from 'firebase-admin/app';
 import { firebaseAppProvider } from './firebase-app.provider';
+import { FirebaseAuthRestClient } from './firebase-auth-rest.client';
 import { FirebaseAuthService } from './firebase-auth.service';
 import { FirebaseStorageService } from './firebase-storage.service';
 import { FIREBASE_APP } from './firebase.constants';
@@ -12,8 +13,13 @@ import { FIREBASE_APP } from './firebase.constants';
  */
 @Global()
 @Module({
-  providers: [firebaseAppProvider, FirebaseAuthService, FirebaseStorageService],
-  exports: [FirebaseAuthService, FirebaseStorageService],
+  providers: [
+    firebaseAppProvider,
+    FirebaseAuthService,
+    FirebaseAuthRestClient,
+    FirebaseStorageService,
+  ],
+  exports: [FirebaseAuthService, FirebaseAuthRestClient, FirebaseStorageService],
 })
 export class FirebaseModule implements OnApplicationShutdown {
   constructor(@Inject(FIREBASE_APP) private readonly app: App) {}
