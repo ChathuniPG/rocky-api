@@ -1,10 +1,11 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import type { Prisma } from '../../generated/prisma/client';
 import { NotificationType } from '../../generated/prisma/enums';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { FollowStateDto } from './dto/follow-state.dto';
-import { CANNOT_FOLLOW_SELF, USER_NOT_FOUND } from './users.constants';
+import { assertUserExists } from './user-existence';
+import { CANNOT_FOLLOW_SELF } from './users.constants';
 
 /**
  * Following and unfollowing users (FR-PROF-05). Both operations are idempotent: following
@@ -92,13 +93,6 @@ export class FollowsService {
 function assertNotSelf(followerId: string, followingId: string): void {
   if (followerId === followingId) {
     throw new BadRequestException(CANNOT_FOLLOW_SELF);
-  }
-}
-
-async function assertUserExists(tx: Prisma.TransactionClient, userId: string): Promise<void> {
-  const user = await tx.user.findUnique({ where: { id: userId }, select: { id: true } });
-  if (!user) {
-    throw new NotFoundException(USER_NOT_FOUND);
   }
 }
 

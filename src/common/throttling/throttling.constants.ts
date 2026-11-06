@@ -30,5 +30,12 @@ export const AUTH_THROTTLE = { ttl: ONE_MINUTE_MS, limit: 10 } as const;
  */
 export const UPLOAD_THROTTLE = { ttl: ONE_MINUTE_MS, limit: 20 } as const;
 
+/**
+ * Stricter limit for sending messages: 30 per minute per client IP, one every two seconds
+ * on average. Far above a person typing, low enough to blunt message spam. Reading and
+ * polling (ADR-008) keep the global default.
+ */
+export const MESSAGE_THROTTLE = { ttl: ONE_MINUTE_MS, limit: 30 } as const;
+
 /** Client message of a 429 response; the body itself is the standard error body. */
 export const TOO_MANY_REQUESTS_MESSAGE = 'Too many requests, please try again later';

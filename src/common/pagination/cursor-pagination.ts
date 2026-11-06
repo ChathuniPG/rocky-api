@@ -138,6 +138,44 @@ export function keysetOrderBy(): KeysetOrderBy {
   return [{ createdAt: 'desc' }, { id: 'desc' }];
 }
 
+/** One branch of the "newer than" keyset condition. */
+export type KeysetNewerCondition =
+  { createdAt: { gt: Date } } | { createdAt: Date; id: { gt: string } };
+
+/** Prisma `where` fragment selecting the rows strictly after a position in ascending order. */
+export interface KeysetNewerWhere {
+  OR: KeysetNewerCondition[];
+}
+
+/** Prisma `orderBy` matching {@link keysetNewerWhere}: oldest first. */
+export type KeysetAscendingOrderBy = [{ createdAt: 'asc' }, { id: 'asc' }];
+
+/**
+ * The mirror image of {@link keysetWhere}, "(created_at, id) > (position)", for reading
+ * forwards in time from a known row, e.g. polling for messages newer than the last one
+ * the client has (ADR-008). Same tie-breaker, so a row is never both "older" and "newer".
+ *
+ * @param position - The row to continue after.
+ * @returns An `OR` condition to spread into the query's `where`.
+ */
+export function keysetNewerWhere(position: CursorPosition): KeysetNewerWhere {
+  return {
+    OR: [
+      { createdAt: { gt: position.createdAt } },
+      { createdAt: position.createdAt, id: { gt: position.id } },
+    ],
+  };
+}
+
+/**
+ * The sort order to use with {@link keysetNewerWhere}.
+ *
+ * @returns `[{ createdAt: 'asc' }, { id: 'asc' }]`.
+ */
+export function keysetAscendingOrderBy(): KeysetAscendingOrderBy {
+  return [{ createdAt: 'asc' }, { id: 'asc' }];
+}
+
 /**
  * Turns the rows of a query made with `take: limit + 1` into a page. The extra row only
  * signals that another page exists; it is not returned. This avoids a COUNT query and
@@ -153,7 +191,27 @@ export function toCursorPage<Row extends CursorPosition, Item>(
   limit: number,
   toItem: (row: Row) => Item,
 ): CursorPage<Item> {
-  return toPage(rows, limit, toItem, encodeCursor);
+  return toCursorPageBy(rows, limit, (row) => row, toItem);
+}
+
+/**
+ * Like {@link toCursorPage}, for rows whose sort timestamp is not `createdAt`, e.g. the
+ * conversation list ordered by (last_message_at DESC, id DESC). The cursor format is the
+ * same "timestamp + id"; only the column the timestamp comes from differs.
+ *
+ * @param rows - Rows in keyset order, at most `limit + 1`.
+ * @param limit - The requested page size.
+ * @param positionOf - Reads a row's sort key as a {@link CursorPosition}.
+ * @param toItem - Maps a row to its response item.
+ * @returns The first `limit` items and the cursor of the last one if more rows exist.
+ */
+export function toCursorPageBy<Row, Item>(
+  rows: readonly Row[],
+  limit: number,
+  positionOf: (row: Row) => CursorPosition,
+  toItem: (row: Row) => Item,
+): CursorPage<Item> {
+  return toPage(rows, limit, toItem, (row) => encodeCursor(positionOf(row)));
 }
 
 /*
