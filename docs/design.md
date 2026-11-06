@@ -117,7 +117,7 @@ Figure 2 illustrates the complete authentication lifecycle described in Sections
 
 - **Timestamps:** all tables have created_at (timestamptz, default now()). Mutable tables also have updated_at.
 
-- **Timestamp precision:** cursor-paginated tables (posts, comments, likes, saves, notifications, messages) store created_at as timestamptz(3), millisecond precision. The pagination cursor is built from a JavaScript Date, which only holds milliseconds; with PostgreSQL's default microsecond precision, rows created in the same millisecond as the cursor row would match neither `created_at < cursor` nor `created_at = cursor` and be skipped (ADR-005). Other timestamps keep microsecond precision.
+- **Timestamp precision:** cursor-paginated tables (posts, comments, likes, saves, notifications, messages) store created_at as timestamptz(3), millisecond precision, and so does conversations.last_message_at, the conversation list's sort key. The pagination cursor is built from a JavaScript Date, which only holds milliseconds; with PostgreSQL's default microsecond precision, rows created in the same millisecond as the cursor row would match neither `created_at < cursor` nor `created_at = cursor` and be skipped (ADR-005). Other timestamps keep microsecond precision.
 
 - **Naming:** snake_case for tables and columns in the database, mapped to camelCase in code.
 
@@ -204,12 +204,12 @@ The composite primary key makes duplicate likes or saves impossible at the datab
 |-----------------|-------------|-------------------------------------------------------------|
 | id              | uuid        | PK                                                          |
 | user_a_id       | uuid        | FK → users, not null                                        |
-| user_b_id       | uuid        | FK → users, not null, indexed                                        |
-| last_message_at | timestamptz | nullable, indexed                                           |
+| user_b_id       | uuid        | FK → users, not null                                        |
+| last_message_at | timestamptz | not null; set to created_at on creation, then to each new message's created_at |
 | created_at      | timestamptz | not null                                                    |
-|                 |             | Unique (user_a_id, user_b_id); check user_a_id \< user_b_id |
+|                 |             | Unique (user_a_id, user_b_id); check user_a_id \< user_b_id; indexes on (user_a_id, last_message_at, id) and (user_b_id, last_message_at, id) |
 
-The ordering rule (user_a_id \< user_b_id) guarantees only one conversation can exist between any two users.
+The ordering rule (user_a_id \< user_b_id) guarantees only one conversation can exist between any two users. The conversation list is ordered by (last_message_at DESC, id DESC); a conversation without messages sorts by its creation time.
 
 #### messages
 
@@ -312,11 +312,13 @@ Figure 3 shows the complete schema, including keys and relationship cardinalitie
 
 | **Method** | **Path**                    | **Description**                                                         |
 |------------|-----------------------------|-------------------------------------------------------------------------|
-| GET        | /conversations              | List conversations with last message and unread count.                  |
-| POST       | /conversations              | Body { recipientId }. Returns the existing conversation or creates one. |
-| GET        | /conversations/:id/messages | Paginated messages (participants only).                                 |
-| POST       | /conversations/:id/messages | Send a message.                                                         |
-| PATCH      | /conversations/:id/read     | Mark the conversation’s messages as read.                               |
+| GET        | /conversations              | List conversations with the other user, last message and unread count, latest activity first (paginated). |
+| POST       | /conversations              | Body { recipientId }. Returns the existing conversation (200) or creates one (201). |
+| GET        | /conversations/:id/messages | Messages, newest first (paginated); with `after=<messageId>`, only newer messages, oldest first, for polling (ADR-008). Participants only. |
+| POST       | /conversations/:id/messages | Send a message (1–1,000 characters, trimmed; 30 per minute). Participants only. |
+| PATCH      | /conversations/:id/read     | Mark the other user’s messages as read (204). Participants only.        |
+
+Conversations of other users are reported as 404, so their existence is not revealed (NFR-SEC-02).
 
 #### System
 
@@ -501,6 +503,6 @@ Figure 5 summarizes the route structure and how authentication controls access.
 
 - **Context:** NFR-SEC-05 requires rate limiting, with stricter limits on authentication endpoints. @nestjs/throttler keeps its counters in memory by default; a shared store such as Redis would add a service to install, secure and monitor on the EC2 instance (ADR-009).
 
-- **Decision:** Use the default in-memory storage, keyed by client IP. Limits are code constants: 100 requests per minute globally and 10 per minute on sign-up, login and refresh. Trust proxy is set to loopback only, so the client IP comes from Nginx's X-Forwarded-For header and cannot be spoofed by a client connecting directly.
+- **Decision:** Use the default in-memory storage, keyed by client IP. Limits are code constants: 100 requests per minute globally, 10 per minute on sign-up, login and refresh, 20 per minute on uploads, and 30 per minute on sending messages. Trust proxy is set to loopback only, so the client IP comes from Nginx's X-Forwarded-For header and cannot be spoofed by a client connecting directly.
 
 - **Consequences:** No extra infrastructure, and the limits are correct while the API runs as a single process (one PM2 instance, NFR-OPS-01). Counters reset when the process restarts, and they would not be shared if the API ran in PM2 cluster mode or on several instances: each process would allow the full limit. Scaling out requires switching to a shared store (e.g. a Redis-backed throttler storage).
