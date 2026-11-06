@@ -17,7 +17,7 @@
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
-    "start:prod": "node dist/main",
+    "start:prod": "node dist/main.js",
     "lint": "oxlint --type-aware --deny-warnings src/ test/ scripts/",
     "lint:fix": "oxlint --type-aware --fix src/ test/ scripts/",
     "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js",
@@ -32,6 +32,7 @@
     "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
+    "db:migrate:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio"
   },
   "dependencies": {
