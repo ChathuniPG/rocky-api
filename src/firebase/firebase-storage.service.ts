@@ -37,6 +37,13 @@ export type StorageObjectMetadata =
 const HTTP_NOT_FOUND = 404;
 
 /**
+ * A folder prefix such as "posts/{userId}/": at least two non-empty segments and a
+ * trailing slash, so a prefix can never select the whole bucket or a whole top-level
+ * folder (every user's uploads).
+ */
+const SAFE_PREFIX_PATTERN = /^[^/]+\/[^/]+\/(?:[^/]+\/)*$/;
+
+/**
  * Gives access to the configured Firebase Storage bucket (FIREBASE_STORAGE_BUCKET) and
  * the object operations used by uploads (#8) and posts (#7). Every Storage failure is
  * reported as {@link FirebaseUnavailableError}, so callers never see raw SDK errors.
@@ -144,6 +151,27 @@ export class FirebaseStorageService {
       await this.storageBucket.file(path).delete({ ignoreNotFound: true });
     } catch (error: unknown) {
       throw this.unavailable('deleteObject', error);
+    }
+  }
+
+  /**
+   * Deletes every object whose path starts with `prefix`, e.g. all uploads of one user.
+   * Deleting a prefix with no objects succeeds, so the call is safe to repeat.
+   *
+   * @param prefix - A folder prefix with at least two segments and a trailing slash,
+   *   e.g. "avatars/{userId}/".
+   * @throws {Error} If the prefix is not such a folder prefix (a programming error).
+   * @throws {FirebaseUnavailableError} If Storage fails.
+   */
+  async deleteObjectsWithPrefix(prefix: string): Promise<void> {
+    // Guards against deleting the whole bucket through an empty or truncated prefix.
+    if (!SAFE_PREFIX_PATTERN.test(prefix) || prefix.split('/').includes('..')) {
+      throw new Error('deleteObjectsWithPrefix needs a folder prefix such as "posts/{id}/"');
+    }
+    try {
+      await this.storageBucket.deleteFiles({ prefix });
+    } catch (error: unknown) {
+      throw this.unavailable('deleteObjectsWithPrefix', error);
     }
   }
 

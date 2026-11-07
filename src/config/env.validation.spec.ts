@@ -240,4 +240,22 @@ describe('validateEnv', () => {
       expect(() => validateEnv(env)).not.toThrow(/AIza secret key/);
     });
   });
+
+  describe('SEED_DEMO_PASSWORD', () => {
+    it('is optional: the API does not need it', () => {
+      expect(validateEnv(required).SEED_DEMO_PASSWORD).toBeUndefined();
+    });
+
+    it('is passed through when set', () => {
+      expect(
+        validateEnv({ ...required, SEED_DEMO_PASSWORD: 'demo-pass-1' }).SEED_DEMO_PASSWORD,
+      ).toBe('demo-pass-1');
+    });
+
+    it('rejects an empty value without echoing it', () => {
+      expect(() => validateEnv({ ...required, SEED_DEMO_PASSWORD: '' })).toThrow(
+        /SEED_DEMO_PASSWORD must not be empty/,
+      );
+    });
+  });
 });

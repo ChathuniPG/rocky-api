@@ -300,6 +300,7 @@ validates them and the API refuses to start if one is missing or invalid.
 | `FIREBASE_STORAGE_BUCKET`       | Bare bucket name, no `gs://`.                                                     |
 | `FIREBASE_WEB_API_KEY`          | Firebase console → Project settings → General. Treat it as a secret.             |
 | `COOKIE_SECURE`                 | **`true`**. The API refuses to start in production with `false` (ADR-003).        |
+| `SEED_DEMO_PASSWORD`            | Optional. Only needed for the one-off demo seed (below); the API ignores it.     |
 
 The `POSTGRES_*` variables in `.env.example` are read by Docker Compose for local development
 only and are not needed on the server.
@@ -341,6 +342,23 @@ curl -i http://127.0.0.1:4000/api/v1/health
 ```
 
 The startup line in `pm2 logs rocky-api` reads `Listening on http://127.0.0.1:4000/api/v1`.
+
+### Demo data for reviewers (optional)
+
+`npm run db:seed` creates six demo users (`demo_*` usernames, `demo.<name>@example.com`
+emails, password `SEED_DEMO_PASSWORD`) with avatars, about 25 posts, likes, saves, follows,
+comments and two conversations. It goes through the API's own services, so the demo users are
+real Firebase accounts and their images live in Firebase Storage. It refuses to run with
+`NODE_ENV=production` unless asked to explicitly:
+
+```bash
+cd ~/rocky/rocky-api
+npm run db:seed -- --allow-production            # safe to repeat: creates only what is missing
+npm run db:seed -- --allow-production --reset    # delete every demo_ user, then seed fresh
+```
+
+`--reset` deletes the demo users' Firebase accounts, Storage folders and database rows
+(cascading to their posts, comments, likes and messages). Other users are never touched.
 
 ## 13. Start on boot
 

@@ -14,6 +14,7 @@ const mockFile = {
 const mockBucketHandle = {
   name: 'rocky-test-1234.firebasestorage.app',
   file: jest.fn(() => mockFile),
+  deleteFiles: jest.fn<Promise<void>, unknown[]>(),
 };
 const mockBucket = jest.fn(() => mockBucketHandle);
 
@@ -173,6 +174,32 @@ describe('FirebaseStorageService', () => {
       mockFile.delete.mockRejectedValue(storageError(500));
 
       await expect(service.deleteObject(PATH)).rejects.toBeInstanceOf(FirebaseUnavailableError);
+    });
+  });
+
+  describe('deleteObjectsWithPrefix', () => {
+    it('deletes every object under a user folder', async () => {
+      mockBucketHandle.deleteFiles.mockResolvedValue(undefined);
+
+      await service.deleteObjectsWithPrefix('avatars/user-1/');
+
+      expect(mockBucketHandle.deleteFiles).toHaveBeenCalledWith({ prefix: 'avatars/user-1/' });
+    });
+
+    it.each(['', '/', 'posts/', 'posts', 'posts/user-1', '/posts/user-1/', 'posts//', 'posts/../'])(
+      'rejects %p without calling Storage',
+      async (prefix) => {
+        await expect(service.deleteObjectsWithPrefix(prefix)).rejects.toThrow(/folder prefix/);
+        expect(mockBucketHandle.deleteFiles).not.toHaveBeenCalled();
+      },
+    );
+
+    it('wraps a Storage failure in FirebaseUnavailableError', async () => {
+      mockBucketHandle.deleteFiles.mockRejectedValue(storageError(500));
+
+      await expect(service.deleteObjectsWithPrefix('posts/user-1/')).rejects.toBeInstanceOf(
+        FirebaseUnavailableError,
+      );
     });
   });
 

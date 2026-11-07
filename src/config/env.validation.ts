@@ -10,6 +10,7 @@ import {
   IsInt,
   IsIP,
   IsNotEmpty,
+  IsOptional,
   IsString,
   IsUrl,
   Matches,
@@ -98,6 +99,14 @@ export class EnvironmentVariables {
   @Transform(({ obj }: { obj: Record<string, unknown> }) => parseBooleanString(obj.COOKIE_SECURE))
   @IsBoolean({ message: 'COOKIE_SECURE must be true or false' })
   COOKIE_SECURE: boolean = true;
+
+  // Shared password of the demo users created by `npm run db:seed`. The API itself never
+  // reads it; the seed requires it and checks it against the sign-up password rules
+  // (SignupDto). Optional here so that the API starts without it. Never logged.
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty({ message: 'SEED_DEMO_PASSWORD must not be empty when it is set' })
+  SEED_DEMO_PASSWORD?: string;
 }
 
 /**
