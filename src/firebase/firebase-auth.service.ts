@@ -117,6 +117,27 @@ export class FirebaseAuthService {
   }
 
   /**
+   * Looks up a Firebase user by email address. Used by maintenance scripts (the demo
+   * seed) to find accounts that have no users row, e.g. after an interrupted run.
+   *
+   * @param email - The email address, as stored by sign-up (trimmed, lowercase).
+   * @returns The user's UID, or `null` if no user has this email.
+   * @throws {FirebaseUnavailableError} On any failure other than not-found.
+   */
+  async findUserByEmail(email: string): Promise<CreatedFirebaseUser | null> {
+    try {
+      const user = await this.auth.getUserByEmail(email);
+      return { uid: user.uid };
+    } catch (error: unknown) {
+      const code = readErrorCode(error);
+      if (code === 'auth/user-not-found') {
+        return null;
+      }
+      throw toDomainError(code, error, {}, 'getUserByEmail', this.logger);
+    }
+  }
+
+  /**
    * Verifies a Firebase ID token's signature, expiry and audience, and always checks
    * whether it was revoked or the user disabled (`checkRevoked: true`, design §3.5).
    * The revocation check costs one extra Firebase call per request; it is what makes

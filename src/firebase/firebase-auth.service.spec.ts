@@ -19,6 +19,7 @@ import {
 const mockAuth = {
   createUser: jest.fn(),
   deleteUser: jest.fn(),
+  getUserByEmail: jest.fn(),
   verifyIdToken: jest.fn(),
   revokeRefreshTokens: jest.fn(),
 };
@@ -107,6 +108,30 @@ describe('FirebaseAuthService', () => {
       mockAuth.deleteUser.mockRejectedValue(firebaseError('auth/user-not-found'));
 
       await expect(service.deleteUser(UID)).rejects.toBeInstanceOf(UserNotFoundError);
+    });
+  });
+
+  describe('findUserByEmail', () => {
+    const email = 'demo@example.com';
+
+    it('returns only the UID of the user with this email', async () => {
+      mockAuth.getUserByEmail.mockResolvedValue({ uid: UID, email, disabled: false });
+
+      await expect(service.findUserByEmail(email)).resolves.toEqual({ uid: UID });
+      expect(mockAuth.getUserByEmail).toHaveBeenCalledWith(email);
+    });
+
+    it('returns null when no user has this email', async () => {
+      mockAuth.getUserByEmail.mockRejectedValue(firebaseError('auth/user-not-found'));
+
+      await expect(service.findUserByEmail(email)).resolves.toBeNull();
+      expect(errorLogSpy).not.toHaveBeenCalled();
+    });
+
+    it('maps any other failure to FirebaseUnavailableError', async () => {
+      mockAuth.getUserByEmail.mockRejectedValue(firebaseError('auth/internal-error'));
+
+      await expect(service.findUserByEmail(email)).rejects.toBeInstanceOf(FirebaseUnavailableError);
     });
   });
 
