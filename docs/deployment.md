@@ -10,13 +10,14 @@ one of these files disagree, the file wins and this guide should be updated:
 | File                    | Purpose                                                       |
 | ----------------------- | ------------------------------------------------------------- |
 | `ecosystem.config.cjs`  | PM2 process definition (one fork-mode instance, ADR-012)      |
-| `deploy/nginx/rocky.conf` | Nginx site: `/api/` → `127.0.0.1:4000`, placeholder for `/` |
+| `deploy/nginx/rocky.conf` | Nginx site: `/api/` → `127.0.0.1:4000`, `/` → `127.0.0.1:3000` |
 | `deploy/redeploy.sh`    | Pull, install, build, migrate, reload, health check           |
 | `.env.example`          | Every environment variable the API reads                      |
 
-**Not covered yet:** HTTPS (domain, TLS certificate, HTTP→HTTPS redirect, HSTS) is issue #15,
-and the frontend (rocky-web) is deployed in a later issue. Until then Nginx serves plain HTTP
-and `/` returns a "coming soon" placeholder.
+Sections 1–15 set up the API behind plain HTTP. Section 16 (issue #15) adds the frontend
+(rocky-web), the domain `rocky-social.duckdns.org` and HTTPS with an HTTP→HTTPS redirect.
+rocky-web's own `ecosystem.config.cjs` and `deploy/redeploy.sh` are the source of truth for its
+commands.
 
 ## Contents
 
@@ -35,8 +36,9 @@ and `/` returns a "coming soon" placeholder.
 13. [Start on boot](#13-start-on-boot)
 14. [Enable the Nginx site](#14-enable-the-nginx-site)
 15. [Verify](#15-verify)
-16. [Redeploy](#16-redeploy)
-17. [Troubleshooting](#17-troubleshooting)
+16. [Frontend and HTTPS](#16-frontend-and-https)
+17. [Redeploy](#17-redeploy)
+18. [Troubleshooting](#18-troubleshooting)
 
 Placeholders used below: `<elastic-ip>` is the instance's public address, `<admin-ip>` is the
 public IP of the machine you administer from and `<key-file>` is the private key downloaded
@@ -47,14 +49,15 @@ Server layout:
 | Path                                         | Contents                                   |
 | -------------------------------------------- | ------------------------------------------ |
 | `/home/ubuntu/rocky/rocky-api`               | This repository (`~/rocky/rocky-api`)      |
+| `/home/ubuntu/rocky/rocky-web`               | Frontend repository (section 16)           |
 | `/home/ubuntu/rocky/secrets/`                | Secrets directory, mode 700                |
 | `/home/ubuntu/rocky/secrets/firebase-admin.json` | Firebase service account key, mode 600 |
 
 ## 1. Target architecture
 
 ```
-Internet ──► :80 Nginx ──► /api/*  ──► 127.0.0.1:4000  rocky-api (PM2, fork, 1 instance)
-                      └──► /*      ──► placeholder text (rocky-web later)
+Internet ──► :443 Nginx ──► /api/*  ──► 127.0.0.1:4000  rocky-api (PM2, fork, 1 instance)
+   (:80 → 301 to https) └──► /*      ──► 127.0.0.1:3000  rocky-web (PM2, next start)
                                         │
                                         ├─► 127.0.0.1:5432 PostgreSQL 18 (ADR-009)
                                         └─► Firebase Auth / Storage (HTTPS, outbound)
@@ -311,8 +314,8 @@ Notes:
   percent-encode them in `DATABASE_URL`, or the URL will be parsed incorrectly.
 - Never commit, print or paste the server's `.env`. It is excluded by `.gitignore`.
 - **`COOKIE_SECURE=true` over plain HTTP:** browsers do not store cookies with the Secure flag
-  on an `http://` site. Until HTTPS is set up (#15), login from a browser will not keep the
-  session. `curl` and the health check are unaffected.
+  on an `http://` site. Until HTTPS is set up (section 16), login from a browser will not keep
+  the session. `curl` and the health check are unaffected.
 
 ## 12. Build, migrate and start
 
@@ -409,9 +412,8 @@ From your own machine (not the server):
 curl -i http://<elastic-ip>/api/v1/health
 # HTTP/1.1 200 OK, {"status":"ok","database":"up"}, no "Server: nginx/x.y" version
 
-# Frontend placeholder
-curl http://<elastic-ip>/
-# R.O.C.K.Y. web app coming soon.
+# Frontend: 502 Bad Gateway until rocky-web runs on 127.0.0.1:3000 (section 16)
+curl -I http://<elastic-ip>/
 
 # Ports that must NOT be reachable (both should time out)
 curl --max-time 5 http://<elastic-ip>:4000/api/v1/health
@@ -471,7 +473,153 @@ curl -i http://127.0.0.1:4000/api/v1/health     # 200
 And again from your machine: `curl -i http://<elastic-ip>/api/v1/health` returns 200, which
 also confirms the Elastic IP survived the reboot.
 
-## 16. Redeploy
+## 16. Frontend and HTTPS
+
+Issue #15: deploy rocky-web next to the API, serve both on `rocky-social.duckdns.org` and add
+HTTPS. rocky-web's `ecosystem.config.cjs` and `deploy/redeploy.sh` are the source of truth for
+its commands; if they disagree with this section, they win. Planned values:
+
+| Setting       | Value                                             |
+| ------------- | ------------------------------------------------- |
+| PM2 app name  | `rocky-web`                                       |
+| Process       | `next start`, bound to `127.0.0.1`, port `3000`   |
+| Directory     | `/home/ubuntu/rocky/rocky-web` (`~/rocky/rocky-web`) |
+
+### 16.1 Prerequisites
+
+- The DuckDNS record `rocky-social` points to `<elastic-ip>`. Check from your machine:
+  `nslookup rocky-social.duckdns.org` must return the Elastic IP. certbot fails if it does not.
+- Ports 80 and 443 are open in the security group (step 2). Let's Encrypt validates over
+  port 80, so it must stay open after HTTPS is enabled.
+- rocky-api is running (`pm2 status`, step 12).
+
+### 16.2 Clone rocky-web
+
+```bash
+cd ~/rocky
+git clone https://github.com/ChathuniPG/rocky-web.git
+cd ~/rocky/rocky-web
+```
+
+### 16.3 Server `.env.local`
+
+Next.js reads `.env.local` from the repository root. Create it **before** the build, because
+`next.config.ts` validates these variables when `next build` runs:
+
+```bash
+cd ~/rocky/rocky-web
+nano .env.local
+chmod 600 .env.local
+```
+
+| Variable                  | Production notes                                                              |
+| ------------------------- | ----------------------------------------------------------------------------- |
+| `FIREBASE_STORAGE_BUCKET` | Same bare bucket name as the API's `FIREBASE_STORAGE_BUCKET`, no `gs://`.     |
+| `API_INTERNAL_URL`        | `http://127.0.0.1:4000`. Use `127.0.0.1`, not `localhost`: the API binds to IPv4 only. |
+
+Both are server-only (no `NEXT_PUBLIC_` prefix), so they are never sent to the browser.
+rocky-web's `.env.example` describes each one. Never commit, print or paste `.env.local`.
+
+### 16.4 Build and start under PM2
+
+The first start, by hand:
+
+```bash
+cd ~/rocky/rocky-web
+npm ci --include=dev          # the Next.js build tooling includes devDependencies
+npm run build                 # next build → .next/
+pm2 start ecosystem.config.cjs
+pm2 save                      # restore rocky-web too after a reboot (NFR-OPS-01)
+pm2 status                    # rocky-api and rocky-web: online
+curl -I http://127.0.0.1:3000/   # 200 from Next.js
+```
+
+`sudo ss -tlnp` must show `127.0.0.1:3000` for `node`, never `0.0.0.0:3000`. Port 3000 is not
+opened in the security group.
+
+Later redeploys, after changes are merged into rocky-web's `main`:
+
+```bash
+cd ~/rocky/rocky-web
+bash deploy/redeploy.sh
+```
+
+### 16.5 Install the Nginx config
+
+`deploy/nginx/rocky.conf` sets `server_name rocky-social.duckdns.org` and proxies `/` to
+`127.0.0.1:3000`. Install it as in step 14 (the symlink already exists):
+
+```bash
+cd ~/rocky/rocky-api
+git pull --ff-only
+sudo cp deploy/nginx/rocky.conf /etc/nginx/sites-available/rocky
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+Check over plain HTTP before requesting the certificate:
+
+```bash
+curl -I http://rocky-social.duckdns.org/                  # 200 from Next.js
+curl -i http://rocky-social.duckdns.org/api/v1/health     # 200 from the API
+```
+
+### 16.6 Obtain the certificate
+
+Install certbot with its Nginx plugin, then request a Let's Encrypt certificate:
+
+```bash
+sudo apt install -y certbot python3-certbot-nginx
+sudo certbot --nginx -d rocky-social.duckdns.org --redirect
+```
+
+certbot asks for an email address (expiry notices) and agreement to the terms. `--redirect`
+makes port 80 answer with `301` to `https://`. certbot edits
+`/etc/nginx/sites-available/rocky` in place: it adds `listen 443 ssl`, the certificate paths and
+its TLS settings to the server block, adds a separate port 80 block for the redirect and
+reloads Nginx.
+
+Check from your machine:
+
+```bash
+curl -I http://rocky-social.duckdns.org/                  # 301, Location: https://...
+curl -I https://rocky-social.duckdns.org/                 # 200 from Next.js
+curl -i https://rocky-social.duckdns.org/api/v1/health    # 200 from the API
+```
+
+Sign in from a browser at `https://rocky-social.duckdns.org/`: with HTTPS, the `Secure`
+session cookies (`COOKIE_SECURE=true`, step 11) are now stored and the session is kept.
+
+### 16.7 Verify renewal
+
+Let's Encrypt certificates are valid for 90 days. The certbot package installs a systemd timer
+that renews them automatically. Check the timer, then run a renewal against the staging
+server (nothing is changed):
+
+```bash
+systemctl list-timers | grep certbot   # certbot.timer, with a next run time
+sudo certbot renew --dry-run           # "Congratulations, all simulated renewals succeeded"
+sudo certbot certificates              # domain and expiry date
+```
+
+### 16.8 Copy the certbot-managed config back into the repository
+
+After 16.6 the server's file is the newest version of the site config. Copy it into your local
+checkout so the repository is the source of truth again. From your Windows machine
+(PowerShell), in the rocky-api repository:
+
+```powershell
+scp -i <path-to>\<key-file>.pem ubuntu@<elastic-ip>:/etc/nginx/sites-available/rocky deploy\nginx\rocky.conf
+```
+
+Review the diff, then commit and merge it through a pull request. The file contains only paths
+to the certificate and key under `/etc/letsencrypt/`, never the keys themselves. Do not edit
+the file in the server's checkout: `redeploy.sh` uses `git pull --ff-only`, which fails on local
+changes.
+
+> Until that change is merged, do **not** copy the repository's `rocky.conf` over the server
+> file: the port-80-only version would remove HTTPS.
+
+## 17. Redeploy
 
 After changes are merged into `main`, on the server:
 
@@ -498,11 +646,13 @@ HEALTH_URL=http://127.0.0.1:<port>/api/v1/health bash ~/rocky/rocky-api/deploy/r
 
 Changes the script does **not** apply:
 
-- A changed `deploy/nginx/rocky.conf` — copy it and reload Nginx (step 14).
+- A changed `deploy/nginx/rocky.conf` — copy it and reload Nginx (step 14). Once HTTPS is set
+  up, only copy a version that contains certbot's TLS settings (16.8).
+- The frontend — rocky-web has its own `deploy/redeploy.sh` (16.4).
 - A changed `.env` — edit it, then run `pm2 reload ecosystem.config.cjs --update-env`.
 - A replaced service account key — copy it as in step 9, then reload PM2.
 
-## 17. Troubleshooting
+## 18. Troubleshooting
 
 **The API does not start or keeps restarting**
 
