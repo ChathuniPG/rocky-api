@@ -6,6 +6,8 @@
 |-------------|-------------|-------------------|------------|
 | 0.1         | 04 Nov 2026 | Chathuni Gunasena | Draft      |
 | 0.2         | 05 Nov 2026 | Chathuni Gunasena | NFR-MNT-01 updated: oxlint replaces ESLint as the linter (see ADR-010)      |
+| 0.3         | 07 Nov 2026 | Chathuni Gunasena | Added FR-FEED-09, FR-FEED-10, FR-POST-07 (TikTok-style video autoplay, feed and post layout)      |
+| 0.4         | 07 Nov 2026 | Chathuni Gunasena | FR-FEED-09 refined: TikTok-style custom video controls.      |
 
 ## 1. Introduction
 
@@ -57,7 +59,7 @@ The system consists of a Next.js web application (frontend) and a NestJS REST AP
 
 - **A-02:** Each post contains exactly one media item.
 
-- **A-03:** Video playback uses the browser’s native player; no transcoding or streaming infrastructure.
+- **A-03:** Video playback uses the browser’s native `<video>` element with custom controls; no transcoding or streaming infrastructure.
 
 - **A-04:** Users authenticate with email and password only.
 
@@ -88,6 +90,8 @@ The system consists of a Next.js web application (frontend) and a NestJS REST AP
 | FR-FEED-06 | A user can view a post’s comments, add a comment, and delete their own comments.                            | Must         |
 | FR-FEED-07 | More posts load automatically as the user scrolls (infinite scroll).                                        | Should       |
 | FR-FEED-08 | A user can manually refresh the feed.                                                                       | Could        |
+| FR-FEED-09 | Videos play automatically and loop when mostly visible, and pause when scrolled away or the tab is hidden; only one video plays at a time. Custom controls: click the video to play or pause, mute and volume in the top-left corner, and a thin seekable progress bar. The sound preference persists for the session. Users with reduced motion enabled are not autoplayed. All controls work from the keyboard and are labelled for screen readers.                                                                       | Should        |
+| FR-FEED-10 | The feed shows one post per screen with vertical snap scrolling. On wide screens, actions (like, comment, save, share) appear in a vertical column beside the media, with the author’s avatar at the top; the username and caption are overlaid on the media.                                                                       | Should        |
 
 ### 3.3 Posts
 
@@ -99,6 +103,7 @@ The system consists of a Next.js web application (frontend) and a NestJS REST AP
 | FR-POST-04 | A user can edit the caption of their own post.                                                                                  | Must         |
 | FR-POST-05 | A user can delete their own post, after a confirmation dialog.                                                                  | Must         |
 | FR-POST-06 | Each post has its own page (/posts/\[id\]) so shared links work.                                                                | Should       |
+| FR-POST-07 | The post page shows the media and comments side by side on wide screens (comments on the right) and stacked on narrow screens. A back control and the Escape key return to the previous page with its scroll position, or to Home when the page was opened directly.                                                                | Should       |
 
 ### 3.4 Search
 
