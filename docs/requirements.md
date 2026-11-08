@@ -9,6 +9,7 @@
 | 0.3         | 07 Nov 2026 | Chathuni Gunasena | Added FR-FEED-09, FR-FEED-10, FR-POST-07 (TikTok-style video autoplay, feed and post layout)      |
 | 0.4         | 07 Nov 2026 | Chathuni Gunasena | FR-FEED-09 refined: TikTok-style custom video controls.      |
 | 0.5         | 08 Nov 2026 | Chathuni Gunasena | Added FR-MSG-06 (unread messages badge in navigation).      |
+| 0.6         | 08 Nov 2026 | Chathuni Gunasena | FR-FEED-10 refined: previous/next feed controls replace the scrollbar.      |
 
 ## 1. Introduction
 
@@ -92,7 +93,7 @@ The system consists of a Next.js web application (frontend) and a NestJS REST AP
 | FR-FEED-07 | More posts load automatically as the user scrolls (infinite scroll).                                        | Should       |
 | FR-FEED-08 | A user can manually refresh the feed.                                                                       | Could        |
 | FR-FEED-09 | Videos play automatically and loop when mostly visible, and pause when scrolled away or the tab is hidden; only one video plays at a time. Custom controls: click the video to play or pause, mute and volume in the top-left corner, and a thin seekable progress bar. The sound preference persists for the session. Users with reduced motion enabled are not autoplayed. All controls work from the keyboard and are labelled for screen readers.                                                                       | Should        |
-| FR-FEED-10 | The feed shows one post per screen with vertical snap scrolling. On wide screens, actions (like, comment, save, share) appear in a vertical column beside the media, with the author’s avatar at the top; the username and caption are overlaid on the media.                                                                       | Should        |
+| FR-FEED-10 | The feed shows one post per screen with vertical snap scrolling. On wide screens, actions (like, comment, save, share) appear in a vertical column beside the media, with the author’s avatar at the top; the username and caption are overlaid on the media. On wide screens, the feed shows no scrollbar; previous/next controls (and the Up/Down arrow keys) move one post at a time.                                                                       | Should        |
 
 ### 3.3 Posts
 

@@ -1,0 +1,103 @@
+# Continuous integration for rocky-api (issue #13, NFR-MNT-02). See docs/ci.md.
+# e2e tests are deliberately not run here: they use the live Firebase project.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Least privilege: the jobs only need to read the repository.
+permissions:
+  contents: read
+
+# A new push to the same branch or PR cancels the run it supersedes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Lint, typecheck, build, test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # Actions are pinned to full commit SHAs (supply-chain hardening); the comment is the release.
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # No job pushes, so the token is not left in .git/config for later steps.
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      # postinstall runs `prisma generate`, which needs no database and no .env.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Check formatting
+        run: npm run format:check
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Unit tests
+        run: npm test
+
+  migrations:
+    name: Prisma migrations
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        # Same major version and image as docker-compose.yml and production (PostgreSQL 18).
+        image: postgres:18-alpine
+        # Throwaway credentials for a disposable container that only lives for this job.
+        # They protect nothing, so they are deliberately not stored as secrets.
+        env:
+          POSTGRES_USER: rocky_ci
+          POSTGRES_PASSWORD: rocky_ci
+          POSTGRES_DB: rocky_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rocky_ci -d rocky_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://rocky_ci:rocky_ci@localhost:5432/rocky_ci
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply all migrations to a fresh database
+        run: npx prisma migrate deploy
+
+      # The database now has exactly the state the migrations produce. Comparing it with
+      # schema.prisma catches a schema change without a migration (or a hand-edited
+      # migration). Prisma 7's --from-migrations would need a shadow database; this does not.
+      # --exit-code: 0 = in sync, 2 = drift (fails the job), 1 = error.
+      - name: Check for drift between migrations and schema
+        run: npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
