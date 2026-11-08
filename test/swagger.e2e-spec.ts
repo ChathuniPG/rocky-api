@@ -72,6 +72,7 @@ describe('Swagger (e2e)', () => {
       '/api/v1/auth/signup',
       '/api/v1/comments/{id}',
       '/api/v1/conversations',
+      '/api/v1/conversations/unread-count',
       '/api/v1/conversations/{id}/messages',
       '/api/v1/conversations/{id}/read',
       '/api/v1/health',

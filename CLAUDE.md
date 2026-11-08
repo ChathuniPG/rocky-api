@@ -65,6 +65,14 @@ The developer is learning NestJS, TypeScript and Prisma during this project and 
 - Test files sit next to the code they test: posts.service.spec.ts.
 - Before declaring a step complete, run: npm run lint, npm run typecheck, npm run build, npm test.
 
+## Test data
+
+- e2e tests create uniquely named users with uniqueTestUserCredentials and delete them in afterAll with deleteTestUser (PostgreSQL row, whose posts, comments, conversations and messages cascade, plus the Firebase Auth account). Files a test uploads to Firebase Storage are deleted by the test.
+- Track every piece of test data you create outside the automated tests (accounts, posts, comments, uploads, conversations), with its id, as you create it, e.g. manual curl or Swagger checks.
+- Keep generated credentials in your scratchpad until cleanup is done; never regenerate or overwrite saved credentials. You need them to sign in again for cleanup.
+- Clean up all test data before you finish. The API has no endpoint for deleting a user, so an account you create manually stays behind: list it in your report.
+- If any cleanup fails, report it clearly: what is left, its ids, and how the developer can remove it.
+
 ## Security
 
 - Never read, print or modify .env files or any service account JSON. Use .env.example for documentation.

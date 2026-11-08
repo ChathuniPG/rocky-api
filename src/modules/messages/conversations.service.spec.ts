@@ -5,7 +5,7 @@ import { PaginationQueryDto } from '../../common/pagination/pagination-query.dto
 import type { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { USER_NOT_FOUND } from '../users/users.constants';
-import type { ConversationRow } from './conversation-query';
+import type { ConversationRow, UnreadConversationsCountRow } from './conversation-query';
 import { ConversationsService } from './conversations.service';
 import { CANNOT_MESSAGE_SELF } from './messages.constants';
 
@@ -53,7 +53,7 @@ describe('ConversationsService', () => {
   const prisma = {
     user: { findUnique: jest.fn<Promise<{ id: string } | null>, [unknown]>() },
     conversation: { createMany: jest.fn<Promise<{ count: number }>, [unknown]>() },
-    $queryRaw: jest.fn<Promise<ConversationRow[]>, [Prisma.Sql]>(),
+    $queryRaw: jest.fn<Promise<ConversationRow[] | UnreadConversationsCountRow[]>, [Prisma.Sql]>(),
   };
   let service: ConversationsService;
 
@@ -233,6 +233,29 @@ describe('ConversationsService', () => {
         BadRequestException,
       );
       expect(prisma.$queryRaw).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('countUnread', () => {
+    it('counts conversations with an unread message from the other user in one query', async () => {
+      prisma.$queryRaw.mockResolvedValue([{ count: 2 }]);
+
+      await expect(service.countUnread(LOW_ID)).resolves.toEqual({ count: 2 });
+
+      expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+      const sql = sqlOfCall();
+      // Both participant columns and the sender check are bound to the caller.
+      expect(sql.values).toEqual([LOW_ID, LOW_ID, LOW_ID]);
+      expect(sql.text).toContain('(c.user_a_id = $1::uuid OR c.user_b_id = $2::uuid)');
+      // EXISTS, so several unread messages in one conversation count once.
+      expect(sql.sql).toContain('EXISTS');
+      expect(sql.text).toContain('m.sender_id <> $3::uuid AND m.read_at IS NULL');
+    });
+
+    it('returns 0 when nothing is unread', async () => {
+      prisma.$queryRaw.mockResolvedValue([{ count: 0 }]);
+
+      await expect(service.countUnread(LOW_ID)).resolves.toEqual({ count: 0 });
     });
   });
 });

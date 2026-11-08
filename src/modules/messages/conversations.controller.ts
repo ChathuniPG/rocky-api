@@ -15,6 +15,7 @@ import type { User } from '../../generated/prisma/client';
 import { ConversationsService } from './conversations.service';
 import { ConversationPageDto, ConversationResponseDto } from './dto/conversation-response.dto';
 import { CreateConversationDto } from './dto/create-conversation.dto';
+import { UnreadConversationsCountDto } from './dto/unread-conversations-count.dto';
 import { CONVERSATION_COMMON_ERRORS } from './messages.constants';
 
 /**
@@ -26,6 +27,22 @@ import { CONVERSATION_COMMON_ERRORS } from './messages.constants';
 @Controller('conversations')
 export class ConversationsController {
   constructor(private readonly conversations: ConversationsService) {}
+
+  /** Number of conversations with unread messages, for the navigation badge (FR-MSG-06). */
+  // Declared first, and this controller is registered before MessagesController, so the
+  // literal path is matched before any current or future /conversations/:id route.
+  @Get('unread-count')
+  @ApiOperation({
+    summary: 'Number of your conversations with unread messages',
+    description:
+      'Counts conversations with at least one unread message from the other participant. ' +
+      'Several unread messages in one conversation count once.',
+  })
+  @ApiOkResponse({ type: UnreadConversationsCountDto })
+  @ApiErrorResponses(...CONVERSATION_COMMON_ERRORS)
+  unreadCount(@CurrentUser() user: User): Promise<UnreadConversationsCountDto> {
+    return this.conversations.countUnread(user.id);
+  }
 
   /** The user's conversations, latest activity first (FR-MSG-01, FR-MSG-05). */
   @Get()

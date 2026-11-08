@@ -15,8 +15,11 @@ import {
   type ConversationRow,
   conversationPosition,
   conversationsQuery,
+  type UnreadConversationsCountRow,
+  unreadConversationsCountQuery,
 } from './conversation-query';
 import { ConversationResponseDto } from './dto/conversation-response.dto';
+import { UnreadConversationsCountDto } from './dto/unread-conversations-count.dto';
 import { CANNOT_MESSAGE_SELF } from './messages.constants';
 
 /** Result of {@link ConversationsService.open}. */
@@ -100,6 +103,22 @@ export class ConversationsService {
     // One extra row tells whether a next page exists (see toCursorPageBy).
     const rows = await this.query(userId, afterPosition(position), query.limit + 1);
     return toCursorPageBy(rows, query.limit, conversationPosition, ConversationResponseDto.fromRow);
+  }
+
+  /**
+   * Counts the user's conversations that contain at least one unread message from the
+   * other participant, for the navigation badge (FR-MSG-06). One query; see
+   * {@link unreadConversationsCountQuery} for the indexes it uses.
+   *
+   * @param userId - Internal ID of the signed-in user.
+   * @returns `{ count }`.
+   */
+  async countUnread(userId: string): Promise<UnreadConversationsCountDto> {
+    const rows = await this.prisma.$queryRaw<UnreadConversationsCountRow[]>(
+      unreadConversationsCountQuery(userId),
+    );
+    // An aggregate without GROUP BY always returns one row; 0 is only a type-level fallback.
+    return UnreadConversationsCountDto.of(rows[0]?.count ?? 0);
   }
 
   private query(userId: string, filter: Prisma.Sql, limit: number): Promise<ConversationRow[]> {
