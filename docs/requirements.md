@@ -8,6 +8,7 @@
 | 0.2         | 05 Nov 2026 | Chathuni Gunasena | NFR-MNT-01 updated: oxlint replaces ESLint as the linter (see ADR-010)      |
 | 0.3         | 07 Nov 2026 | Chathuni Gunasena | Added FR-FEED-09, FR-FEED-10, FR-POST-07 (TikTok-style video autoplay, feed and post layout)      |
 | 0.4         | 07 Nov 2026 | Chathuni Gunasena | FR-FEED-09 refined: TikTok-style custom video controls.      |
+| 0.5         | 08 Nov 2026 | Chathuni Gunasena | Added FR-MSG-06 (unread messages badge in navigation).      |
 
 ## 1. Introduction
 
@@ -143,6 +144,7 @@ The system consists of a Next.js web application (frontend) and a NestJS REST AP
 | FR-MSG-03 | A user can send text messages (max 1,000 characters).                                                             | Must         |
 | FR-MSG-04 | New incoming messages appear without a full page reload (short-interval polling).                                 | Should       |
 | FR-MSG-05 | Unread conversations are visually indicated.                                                                      | Should       |
+| FR-MSG-06 | The navigation shows the number of conversations with unread messages, updated periodically and immediately after reading a conversation.                                                                      | Should       |
 
 ### 3.8 Settings
 
