@@ -10,7 +10,7 @@ one of these files disagree, the file wins and this guide should be updated:
 | File                    | Purpose                                                       |
 | ----------------------- | ------------------------------------------------------------- |
 | `ecosystem.config.cjs`  | PM2 process definition (one fork-mode instance, ADR-012)      |
-| `deploy/nginx/rocky.conf` | Nginx site: `/api/` → `127.0.0.1:4000`, `/` → `127.0.0.1:3000` |
+| `deploy/nginx/rocky.conf` | Nginx site: HTTPS on 443 (`/api/` → `127.0.0.1:4000`, `/` → `127.0.0.1:3000`), 80 → 301 to HTTPS |
 | `deploy/redeploy.sh`    | Pull, install, build, migrate, reload, health check           |
 | `.env.example`          | Every environment variable the API reads                      |
 
@@ -384,7 +384,14 @@ Run `pm2 save` again whenever the process list changes (`redeploy.sh` does this)
 
 ## 14. Enable the Nginx site
 
-The commands are taken from the header of `deploy/nginx/rocky.conf`:
+The commands are taken from the header of `deploy/nginx/rocky.conf`.
+
+> The repository version of `rocky.conf` includes HTTPS (section 16). Its certificate paths
+> under `/etc/letsencrypt/live/` were written by certbot, so `nginx -t` fails on a server
+> that has no certificate yet. On a new server, first install the port-80-only version from
+> commit `9c655de` (`git show 9c655de:deploy/nginx/rocky.conf > /tmp/rocky.conf`, then copy
+> `/tmp/rocky.conf` instead). Obtain the certificate (16.1–16.6), then install the current
+> version as in [Apply a changed config](#apply-a-changed-config).
 
 ```bash
 cd ~/rocky/rocky-api
@@ -400,12 +407,27 @@ the real client address (the API uses `trust proxy = loopback` for per-IP rate l
 ADR-012), allows request bodies up to 30 MB (25 MB videos, FR-POST-02) and hides the Nginx
 version.
 
-When `rocky.conf` changes in the repository, copy it again and run the last command. The
-`sites-available` file is a copy, not a link, so `git pull` alone does not change Nginx.
+### Apply a changed config
+
+The `sites-available` file is a copy, not a link, so `git pull` alone does not change Nginx.
+When `rocky.conf` changes in the repository, after the change is merged into `main`:
+
+```bash
+cd ~/rocky/rocky-api
+git pull --ff-only
+sudo cp deploy/nginx/rocky.conf /etc/nginx/sites-available/rocky
+sudo nginx -t                    # syntax and certificate check of the new file
+sudo systemctl reload nginx      # only if nginx -t passed
+```
+
+If `nginx -t` fails, do not reload: the running Nginx keeps the previous configuration until a
+reload succeeds. Fix the file in the repository, not on the server.
 
 ## 15. Verify
 
-From your own machine (not the server):
+From your own machine (not the server). The commands below are for the plain-HTTP setup
+before section 16. Once HTTPS is set up, plain HTTP by IP returns `404` (only the domain is
+redirected), so use `https://rocky-social.duckdns.org/...` instead (16.6, 16.9).
 
 ```bash
 # API through Nginx
@@ -442,7 +464,8 @@ Expected (other columns trimmed):
 | -------------------------------- | -------- | ------------------------------------------ |
 | `127.0.0.1:4000`                 | `node`   | API, loopback only (`HOST`)                |
 | `127.0.0.1:5432`, `[::1]:5432`   | `postgres` | PostgreSQL, loopback only (ADR-009)      |
-| `0.0.0.0:80`, `[::]:80`          | `nginx`  | Public entry point                         |
+| `0.0.0.0:80`, `[::]:80`          | `nginx`  | HTTP, redirect to HTTPS (section 16)       |
+| `0.0.0.0:443`, `[::]:443`        | `nginx`  | HTTPS, public entry point (section 16)     |
 | `0.0.0.0:22`, `[::]:22`          | `sshd`   | SSH (restricted by the security group)     |
 
 `0.0.0.0:4000`, `*:4000` or `0.0.0.0:5432` would mean the API or the database listens on all
@@ -546,8 +569,10 @@ bash deploy/redeploy.sh
 
 ### 16.5 Install the Nginx config
 
-`deploy/nginx/rocky.conf` sets `server_name rocky-social.duckdns.org` and proxies `/` to
-`127.0.0.1:3000`. Install it as in step 14 (the symlink already exists):
+The port-80-only config sets `server_name rocky-social.duckdns.org` and proxies `/` to
+`127.0.0.1:3000`. Install it as in step 14 (the symlink already exists). On a new server, use
+the port-80-only version from commit `9c655de` here (see the note in step 14): the current
+`rocky.conf` needs the certificate from 16.6.
 
 ```bash
 cd ~/rocky/rocky-api
@@ -603,7 +628,12 @@ sudo certbot certificates              # domain and expiry date
 
 ### 16.8 Copy the certbot-managed config back into the repository
 
-After 16.6 the server's file is the newest version of the site config. Copy it into your local
+Done for issue #15: `deploy/nginx/rocky.conf` is the certbot-managed config with comments, HSTS
+(16.9) and streaming support for Next.js. It is the source of truth again; apply changes to it
+as in [Apply a changed config](#apply-a-changed-config). The steps below are only needed if
+certbot edits the server's file again (for example `certbot --nginx` for a new domain).
+
+After certbot edits the server's file, that file is the newest version of the site config. Copy it into your local
 checkout so the repository is the source of truth again. From your Windows machine
 (PowerShell), in the rocky-api repository:
 
@@ -617,7 +647,33 @@ the file in the server's checkout: `redeploy.sh` uses `git pull --ff-only`, whic
 changes.
 
 > Until that change is merged, do **not** copy the repository's `rocky.conf` over the server
-> file: the port-80-only version would remove HTTPS.
+> file: it would remove certbot's changes.
+
+### 16.9 HSTS and streaming
+
+The HTTPS server sends HSTS (HTTP Strict Transport Security):
+
+```
+Strict-Transport-Security: max-age=31536000; includeSubDomains
+```
+
+When a browser has seen this header, it uses only HTTPS for the domain and its subdomains for
+one year, so it never makes a plain-HTTP request that could be intercepted before the redirect.
+This is safe here because HTTPS works and the certificate renews automatically (16.7). The
+header is not added to the preload list (`preload`), because removing a domain from that list is slow and
+duckdns.org is a shared parent domain. HTTPS must stay enabled: browsers that have seen
+the header refuse plain HTTP for the domain until `max-age` expires.
+
+`location /` also sets `proxy_buffering off`, as the Next.js self-hosting guide recommends, so
+streamed pages (`loading.tsx`, Suspense) reach the browser in chunks instead of all at once.
+
+Check from your machine:
+
+```bash
+curl -sI https://rocky-social.duckdns.org/ | grep -i strict-transport   # header present
+curl -sI http://rocky-social.duckdns.org/ | grep -i strict-transport    # nothing: 301 only
+curl -sI http://rocky-social.duckdns.org/ | grep -i '^server'           # "Server: nginx", no version
+```
 
 ## 17. Redeploy
 
@@ -646,8 +702,8 @@ HEALTH_URL=http://127.0.0.1:<port>/api/v1/health bash ~/rocky/rocky-api/deploy/r
 
 Changes the script does **not** apply:
 
-- A changed `deploy/nginx/rocky.conf` — copy it and reload Nginx (step 14). Once HTTPS is set
-  up, only copy a version that contains certbot's TLS settings (16.8).
+- A changed `deploy/nginx/rocky.conf` — see [Apply a changed config](#apply-a-changed-config)
+  (`cp`, `nginx -t`, reload).
 - The frontend — rocky-web has its own `deploy/redeploy.sh` (16.4).
 - A changed `.env` — edit it, then run `pm2 reload ecosystem.config.cjs --update-env`.
 - A replaced service account key — copy it as in step 9, then reload PM2.
