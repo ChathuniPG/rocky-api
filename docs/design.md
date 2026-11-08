@@ -6,6 +6,11 @@
 | 0.2         | 05 Nov 2026 | Chathuni Gunasena | Align index definitions with query ordering.      |
 | 0.3         | 06 Nov 2026 | Chathuni Gunasena | Added ADR-011 (Service account loaded from file path), Added ADR-012 (In-memory rate-limit storage).      |
 | 0.4         | 06 Nov 2026 | Chathuni Gunasena | Millisecond created_at precision on cursor-paginated tables; posts.media_path unique.      |
+| 0.5         | 07 Nov 2026 | Chathuni Gunasena | Added ADR-013 (Client-side route protection via AuthProvider to support seamless token refreshes).      |
+| 0.6         | 07 Nov 2026 | Chathuni Gunasena | Section 7.2: TikTok-style feed and post layout (FR-FEED-10, FR-POST-07).      |
+| 0.7         | 07 Nov 2026 | Chathuni Gunasena | Section 7.2: custom video player with autoplay (FR-FEED-09).      |
+| 0.8         | 08 Nov 2026 | Chathuni Gunasena | Section 7.2: text halo instead of a dark band for text over media; scrolling expanded captions.      |
+| 0.9         | 08 Nov 2026 | Chathuni Gunasena | Added ADR-014 (Full page load when the signed-in user changes); Section 7.3 references it.      |
 
 ## 1. Purpose
 
@@ -367,7 +372,9 @@ Shared code lives in a common folder: the auth guard, the @CurrentUser() decorat
 | /messages, /messages/\[id\] | Conversation list and thread       |
 | /settings                   | Settings                           |
 
-The “Post” navigation item opens a create-post dialog rather than navigating to a separate page. Next.js middleware redirects unauthenticated users to /login.
+The “Post” navigation item opens a create-post dialog rather than navigating to a separate page.
+
+Route protection follows ADR-013. The app routes are protected on the client: an AuthProvider loads /auth/me, refreshing the session once on a 401, and shows a full-page skeleton until the user is known. If the refresh also fails, the user is redirected to /login?next=<current path>, and after login they return to that path. Only same-site relative paths are accepted for `next`; anything else falls back to /. The Next.js proxy (formerly middleware) only redirects visitors who have a rocky_id cookie away from /login and /signup to /.
 
 Figure 5 summarizes the route structure and how authentication controls access.
 
@@ -383,11 +390,21 @@ Figure 5 summarizes the route structure and how authentication controls access.
 
 - **Widescreen:** content width is capped for readability, and a right panel shows suggested users.
 
+- **Content column:** list and form pages (search, profile, notifications, messages, settings) share a width-capped column. The Home feed and the post page use the full height of the viewport instead.
+
+- **Home feed (FR-FEED-10):** one post per screen, with mandatory vertical scroll snapping below a slim sticky header. The media sits in a centred 9:16 frame sized to the available height and is never cropped (object-contain). From 768px a vertical action column sits to the right of the frame: the author's avatar (a link to the profile), then like, comment, save and share. Like and comment show their counts; save and share show a label. Below 768px the same actions form a row under the media. The username, time and caption are overlaid at the bottom of the media in white, so contrast does not depend on the theme. Videos use a custom player (FR-FEED-09): the most visible video autoplays and loops, clicking the video plays or pauses it, the sound control sits in the top-left corner (beside the Back button on the post page), and a thin seekable progress bar runs along the bottom edge, just below the caption overlay. Long captions are clamped to two lines with a "more" toggle; expanded, a caption taller than its space scrolls inside it (wheel, touch, or the keyboard, as a focusable region) without a visible scrollbar, and the edge with more text beyond it fades out. More posts load as the last one nears the viewport, with a "Load more" button as a fallback. The comment action opens the post page.
+
+- **Text over media (decision):** contrast for text drawn over photos and videos is provided by a text halo, not a dark band behind the text, so the media stays unobscured, as on TikTok. All overlay text (display name, username, time, caption and its toggle) is white with layered dark text shadows: a tight, nearly opaque outline that separates each glyph even from a pure white image, plus a soft shadow for depth. Only a light, short gradient sits at the very bottom of the media. WCAG treats a halo as the text's background (Understanding SC 1.4.3), so the contrast is that of white against the dark outline.
+
+- **Post page (FR-POST-07):** from 1024px, the media fills a left pane and a comments panel sits on the right: the author, the owner's menu, the caption, the actions and the comments scroll in the panel, and the comment form is pinned at its bottom. Below 1024px the media is stacked above the panel and the page scrolls. A Back button over the media, and the Escape key, return to the previous page with its scroll position when the user came from within the app, and go to Home when the page was opened directly (e.g. a shared link). Escape is ignored while a dialog or menu is open or while the user is typing.
+
 ### 7.3 State Management
 
 - **Server data** (posts, users, notifications): TanStack Query, which handles caching, loading states, infinite scroll, and optimistic updates.
 
-- **Auth state:** a React context populated from /auth/me.
+- **Auth state:** a React context populated from /auth/me (cached in TanStack Query). The single API client refreshes the session once on a 401, shares one refresh between concurrent requests, and retries the original request (Section 3.6).
+
+- **Switching users:** logout, session expiry, login and signup end with a full page load, so no client state carries over to the next account (ADR-014).
 
 - **Theme:** next-themes.
 
@@ -506,3 +523,19 @@ Figure 5 summarizes the route structure and how authentication controls access.
 - **Decision:** Use the default in-memory storage, keyed by client IP. Limits are code constants: 100 requests per minute globally, 10 per minute on sign-up, login and refresh, 20 per minute on uploads, and 30 per minute on sending messages. Trust proxy is set to loopback only, so the client IP comes from Nginx's X-Forwarded-For header and cannot be spoofed by a client connecting directly.
 
 - **Consequences:** No extra infrastructure, and the limits are correct while the API runs as a single process (one PM2 instance, NFR-OPS-01). Counters reset when the process restarts, and they would not be shared if the API ran in PM2 cluster mode or on several instances: each process would allow the full limit. Scaling out requires switching to a shared store (e.g. a Redis-backed throttler storage).
+
+### ADR-013: Client-side route protection
+
+- **Context:** rocky_id expires after one hour, and the browser then deletes it, while the session itself lives on through rocky_refresh. rocky_refresh is scoped to /api/v1/auth, so it is never sent with page requests. A Next.js proxy (middleware) therefore cannot tell whether a visitor without rocky_id is signed out or only needs a refresh, and redirecting on a missing rocky_id would log users out every hour (FR-AUTH-08).
+
+- **Decision:** Protect app routes on the client. An AuthProvider loads /auth/me through the API client, which calls POST /auth/refresh once on a 401 and retries. Only if the refresh fails is the user redirected to /login?next=<current path>. While the user loads, a full-page skeleton is shown instead of protected content. The proxy only redirects visitors who have a rocky_id cookie away from /login and /signup to /. The API remains the security boundary: every protected endpoint verifies the token itself (NFR-SEC-01).
+
+- **Consequences:** Sessions survive ID-token expiry without forcing re-login, and no session logic is duplicated in Next.js. Protected pages cannot be rendered with user data on the server, and signed-out visitors briefly see a skeleton before the redirect. That is acceptable because the protected pages hold no data until the API returns it. A stale rocky_id cookie can cause one extra redirect from /login to / and back, which ends once the API clears the cookies on the failed refresh. Because their content only renders after the session is confirmed in the browser, every page under the (app) route group exports `instant = false`, which opts it out of the Next.js instant-navigation validation that cacheComponents runs in development.
+
+### ADR-014: Full page load when the signed-in user changes
+
+- **Context:** With cacheComponents, Next.js keeps visited pages mounted but hidden (React Activity). A client-side navigation after logout or login carried React state from the previous session into the next one: a stopped auth query left the app stuck loading, and a kept login form stayed busy.
+
+- **Decision:** Logout, session expiry, login and signup navigate with a full page load (window.location.assign) after clearing the query cache. Post-login destinations still pass through the safe-redirect check. Confirmation toasts survive the reload via sessionStorage.
+
+- **Consequences:** No client state from a previous account can survive a switch: query cache, hidden pages, in-memory singletons, scroll memory and router cache are all reset. Signing in or out costs one full page load, which is acceptable for a rare action.
