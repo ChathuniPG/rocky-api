@@ -1,4 +1,4 @@
-import { NodeEnv, validateEnv } from './env.validation';
+import { NodeEnv, SeedEnv, validateEnv } from './env.validation';
 
 // The minimum configuration the API accepts: every required variable, nothing else.
 // All values are fake; no test touches a real Firebase project.
@@ -255,6 +255,22 @@ describe('validateEnv', () => {
     it('rejects an empty value without echoing it', () => {
       expect(() => validateEnv({ ...required, SEED_DEMO_PASSWORD: '' })).toThrow(
         /SEED_DEMO_PASSWORD must not be empty/,
+      );
+    });
+  });
+
+  describe('SEED_ENV', () => {
+    it('is optional: the API does not need it', () => {
+      expect(validateEnv(required).SEED_ENV).toBeUndefined();
+    });
+
+    it.each([SeedEnv.Local, SeedEnv.Production])('accepts %p', (seedEnv) => {
+      expect(validateEnv({ ...required, SEED_ENV: seedEnv }).SEED_ENV).toBe(seedEnv);
+    });
+
+    it.each(['', 'staging', 'LOCAL', 'production '])('rejects %p', (seedEnv) => {
+      expect(() => validateEnv({ ...required, SEED_ENV: seedEnv })).toThrow(
+        /SEED_ENV must be one of: local, production/,
       );
     });
   });

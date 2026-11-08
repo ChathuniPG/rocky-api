@@ -26,6 +26,12 @@ export enum NodeEnv {
   Test = 'test',
 }
 
+/** Environments the demo seed can seed; part of every demo email (see SEED_ENV). */
+export enum SeedEnv {
+  Local = 'local',
+  Production = 'production',
+}
+
 /**
  * Schema for the environment variables the API reads at startup.
  *
@@ -107,6 +113,14 @@ export class EnvironmentVariables {
   @IsString()
   @IsNotEmpty({ message: 'SEED_DEMO_PASSWORD must not be empty when it is set' })
   SEED_DEMO_PASSWORD?: string;
+
+  // Which environment the demo seed is seeding. Local and production share one Firebase
+  // project, so it is part of every demo email (demo.<name>+<env>@example.com): each
+  // environment's demo accounts are distinct and a seed never finds, or deletes, another
+  // environment's. Optional for the same reason as SEED_DEMO_PASSWORD; the seed requires it.
+  @IsOptional()
+  @IsEnum(SeedEnv, { message: 'SEED_ENV must be one of: local, production' })
+  SEED_ENV?: SeedEnv;
 }
 
 /**

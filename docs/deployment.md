@@ -303,7 +303,8 @@ validates them and the API refuses to start if one is missing or invalid.
 | `FIREBASE_STORAGE_BUCKET`       | Bare bucket name, no `gs://`.                                                     |
 | `FIREBASE_WEB_API_KEY`          | Firebase console → Project settings → General. Treat it as a secret.             |
 | `COOKIE_SECURE`                 | **`true`**. The API refuses to start in production with `false` (ADR-003).        |
-| `SEED_DEMO_PASSWORD`            | Optional. Only needed for the one-off demo seed (below); the API ignores it.     |
+| `SEED_DEMO_PASSWORD`            | Optional. Only needed for the demo seed (below); the API ignores it.             |
+| `SEED_ENV`                      | Optional. **`production`** if you run the demo seed (below); the API ignores it. |
 
 The `POSTGRES_*` variables in `.env.example` are read by Docker Compose for local development
 only and are not needed on the server.
@@ -348,20 +349,45 @@ The startup line in `pm2 logs rocky-api` reads `Listening on http://127.0.0.1:40
 
 ### Demo data for reviewers (optional)
 
-`npm run db:seed` creates six demo users (`demo_*` usernames, `demo.<name>@example.com`
-emails, password `SEED_DEMO_PASSWORD`) with avatars, about 25 posts, likes, saves, follows,
-comments and two conversations. It goes through the API's own services, so the demo users are
-real Firebase accounts and their images live in Firebase Storage. It refuses to run with
-`NODE_ENV=production` unless asked to explicitly:
+`npm run db:seed` creates six demo users (`demo_*` usernames,
+`demo.<name>+production@example.com` emails, password `SEED_DEMO_PASSWORD`) with avatars,
+about 25 posts, likes, saves, follows, comments and two conversations. It goes through the
+API's own services, so the demo users are real Firebase accounts and their images live in
+Firebase Storage.
 
-```bash
-cd ~/rocky/rocky-api
-npm run db:seed -- --allow-production            # safe to repeat: creates only what is missing
-npm run db:seed -- --allow-production --reset    # delete every demo_ user, then seed fresh
-```
+**Why `SEED_ENV`:** local development and production share one Firebase project. The
+environment is part of every demo email (`demo.maya+local@example.com` locally,
+`demo.maya+production@example.com` here), so each environment has its own demo accounts. A
+seed or `--reset` only looks up its own environment's emails and never touches the other
+environment's accounts. The seed refuses to run if `SEED_ENV` does not match `NODE_ENV`
+(`production` here, `local` on a developer machine).
+
+1. Add both seed variables to the server's `.env` (`nano .env`; it stays `chmod 600`):
+
+   ```bash
+   SEED_DEMO_PASSWORD=<a password with at least 8 characters, a letter and a digit>
+   SEED_ENV=production
+   ```
+
+   The API ignores them, so no restart is needed.
+
+2. Seed. It refuses to run with `NODE_ENV=production` unless asked to explicitly:
+
+   ```bash
+   cd ~/rocky/rocky-api
+   npm run db:seed -- --allow-production            # safe to repeat: creates only what is missing
+   npm run db:seed -- --allow-production --reset    # delete every demo_ user, then seed fresh
+   ```
+
+3. Log in on the site as `demo.maya+production@example.com` with `SEED_DEMO_PASSWORD`. The
+   last lines of the seed output list the totals and the email format.
 
 `--reset` deletes the demo users' Firebase accounts, Storage folders and database rows
 (cascading to their posts, comments, likes and messages). Other users are never touched.
+
+If this database was seeded before `SEED_ENV` existed (emails `demo.<name>@example.com`), run
+the `--reset` command once. It deletes the old accounts linked to this database's demo rows
+and creates the `+production` ones.
 
 ## 13. Start on boot
 
