@@ -3,12 +3,27 @@
  * to do with each demo user, which planned rows are still missing, and what a reset
  * deletes. Kept free of Nest, Prisma and Firebase so every decision is unit-tested.
  */
+import { SeedEnv } from '../../src/config/env.validation';
 
 /** Every demo username starts with this; a reset deletes exactly these users. */
 export const DEMO_USERNAME_PREFIX = 'demo_';
 
 /** Reserved for documentation (RFC 2606): demo emails can never reach a real inbox. */
 export const DEMO_EMAIL_DOMAIN = 'example.com';
+
+/**
+ * The email of a demo user in one environment, e.g. `demo.maya+production@example.com`.
+ * Local and production share one Firebase project, so the environment is part of the
+ * email: each environment's demo accounts are distinct, and every Firebase lookup the seed
+ * makes by email can only ever find the current environment's account.
+ *
+ * @param key - The demo user's key (the username without the prefix), e.g. `maya`.
+ * @param seedEnv - The validated SEED_ENV.
+ * @returns The email.
+ */
+export function demoEmail(key: string, seedEnv: SeedEnv): string {
+  return `demo.${key}+${seedEnv}@${DEMO_EMAIL_DOMAIN}`;
+}
 
 /** Parsed command-line flags. */
 export interface SeedArgs {
@@ -66,6 +81,29 @@ export function assertSeedAllowed(nodeEnv: string, args: SeedArgs): void {
 }
 
 /**
+ * Refuses a SEED_ENV that does not match NODE_ENV. Without this, a developer machine with
+ * SEED_ENV=production would look up, and on a reset delete, the production demo accounts
+ * in the shared Firebase project; and a server .env copied with SEED_ENV=local would do
+ * the same to the local ones.
+ *
+ * @param nodeEnv - The validated NODE_ENV.
+ * @param seedEnv - The validated SEED_ENV.
+ * @throws {SeedRefusedError} If exactly one of NODE_ENV and SEED_ENV is production.
+ */
+export function assertSeedEnvMatches(nodeEnv: string, seedEnv: SeedEnv): void {
+  const productionNode = nodeEnv === 'production';
+  const productionSeed = seedEnv === SeedEnv.Production;
+  if (productionNode === productionSeed) {
+    return;
+  }
+  throw new SeedRefusedError(
+    productionNode
+      ? 'NODE_ENV is production but SEED_ENV is not. Set SEED_ENV=production on the server.'
+      : `SEED_ENV=production requires NODE_ENV=production. Use SEED_ENV=${SeedEnv.Local} here.`,
+  );
+}
+
+/**
  * Whether a username belongs to a demo user. Checked in code as well as in the query,
  * because `_` is a LIKE wildcard: a mistake in escaping must not widen a reset.
  */
@@ -84,9 +122,12 @@ export type DemoUserAction =
   | { kind: 'keep'; userId: string }
   | {
       kind: 'create';
-      /** A stale Firebase account with the demo email, to delete before sign-up. */
-      deleteFirebaseUid?: string;
-      /** A users row whose Firebase account is gone, to delete (cascades) before sign-up. */
+      /**
+       * Firebase accounts to delete before sign-up: the one with this environment's demo
+       * email (sign-up would fail on it), and the one the stale row is linked to.
+       */
+      deleteFirebaseUids: string[];
+      /** A users row that is not linked to the account with the demo email, to delete (cascades). */
       deleteUserId?: string;
     };
 
@@ -96,8 +137,13 @@ export type DemoUserAction =
  * an interrupted run, is removed and created again, because sign-up would otherwise fail
  * on the existing email or username.
  *
+ * The row's own linked account is deleted too: sign-up creates a row and its account
+ * together and each environment has its own database, so that account belongs to this
+ * environment (for example one created under an older email scheme) and would otherwise
+ * be left behind in Firebase.
+ *
  * @param row - The users row with the demo username, if any.
- * @param firebaseUid - UID of the Firebase account with the demo email, if any.
+ * @param firebaseUid - UID of the Firebase account with this environment's demo email, if any.
  * @returns The action.
  */
 export function classifyDemoUser(
@@ -107,9 +153,16 @@ export function classifyDemoUser(
   if (row && row.firebaseUid === firebaseUid) {
     return { kind: 'keep', userId: row.id };
   }
+  const uids = new Set<string>();
+  if (firebaseUid !== null) {
+    uids.add(firebaseUid);
+  }
+  if (row !== null) {
+    uids.add(row.firebaseUid);
+  }
   return {
     kind: 'create',
-    ...(firebaseUid === null ? {} : { deleteFirebaseUid: firebaseUid }),
+    deleteFirebaseUids: [...uids],
     ...(row === null ? {} : { deleteUserId: row.id }),
   };
 }
@@ -136,7 +189,7 @@ export interface ResetCandidateRow extends DemoUserRow {
   username: string;
 }
 
-/** A Firebase account found by one of the demo emails. */
+/** A Firebase account found by one of this environment's demo emails. */
 export interface DemoFirebaseAccount {
   email: string;
   uid: string;
@@ -146,7 +199,7 @@ export interface DemoFirebaseAccount {
 export interface ResetPlan {
   /** Storage folders of the demo users: their posts and avatars. */
   storagePrefixes: string[];
-  /** Firebase accounts: those of the demo rows, plus demo emails without a row. */
+  /** Firebase accounts: those of the demo rows, plus this environment's demo emails without a row. */
   firebaseUids: string[];
   /** users rows; deleting them cascades to every row they own. */
   userIds: string[];
@@ -156,10 +209,15 @@ export interface ResetPlan {
  * Plans a reset. Storage goes first (the folder names need the user IDs), then Firebase,
  * then the rows: if a step fails, the rows still exist and a rerun finds everything again.
  *
+ * Only this environment's accounts are deleted: those linked to a row of this environment's
+ * database (sign-up creates both together), and those whose email is in `demoEmails`, the
+ * exact set of this environment's demo emails. Another environment's demo accounts, and
+ * accounts under the legacy un-suffixed emails that no row here links to, are never touched.
+ *
  * @param rows - users rows whose username starts with the demo prefix.
  * @param accounts - Firebase accounts found by looking up the demo emails.
- * @param demoEmails - The demo emails of the seed data; accounts with any other email
- *   are never deleted.
+ * @param demoEmails - This environment's demo emails (see demoEmail); accounts with any
+ *   other email are never deleted.
  * @returns The plan. Rows without the demo prefix are ignored.
  */
 export function planReset(

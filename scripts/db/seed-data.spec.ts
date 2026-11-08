@@ -9,7 +9,8 @@ import {
   DEMO_USERS,
   POPULAR_POST_CAPTION,
 } from './seed-data';
-import { DEMO_EMAIL_DOMAIN, isDemoUsername } from './seed-plan';
+import { SeedEnv } from '../../src/config/env.validation';
+import { demoEmail, isDemoUsername } from './seed-plan';
 
 // The seed relies on these properties for idempotency and for a demo that shows every
 // feature; a careless edit of the content should fail here, not during a live run.
@@ -17,12 +18,25 @@ describe('demo seed content', () => {
   const captions = new Set(DEMO_POSTS.map((post) => post.caption));
   const userKeys = new Set(DEMO_USERS.map((user) => user.key));
 
-  it('has six users with demo usernames, example.com emails and distinct names', () => {
+  it('has six users with demo usernames and distinct names', () => {
     expect(DEMO_USERS).toHaveLength(6);
     expect(DEMO_USERS.every((user) => isDemoUsername(user.username))).toBe(true);
-    expect(DEMO_USERS.every((user) => user.email.endsWith(`@${DEMO_EMAIL_DOMAIN}`))).toBe(true);
     expect(new Set(DEMO_USERS.map((user) => user.displayName)).size).toBe(6);
     expect(new Set(DEMO_USERS.map((user) => user.bio)).size).toBe(6);
+  });
+
+  it.each(Object.values(SeedEnv))('gives every user a distinct %s email', (seedEnv) => {
+    const emails = DEMO_USERS.map((user) => demoEmail(user.key, seedEnv));
+
+    expect(new Set(emails).size).toBe(DEMO_USERS.length);
+    expect(emails.every((email) => email.endsWith(`+${seedEnv}@example.com`))).toBe(true);
+  });
+
+  it('never gives two environments the same demo email', () => {
+    const local = DEMO_USERS.map((user) => demoEmail(user.key, SeedEnv.Local));
+    const production = DEMO_USERS.map((user) => demoEmail(user.key, SeedEnv.Production));
+
+    expect(local.filter((email) => production.includes(email))).toEqual([]);
   });
 
   it('has unique captions and more posts than one feed page', () => {

@@ -1,5 +1,5 @@
 import type { DemoImageSpec, DemoShape, Rgb } from './png';
-import { DEMO_EMAIL_DOMAIN, DEMO_USERNAME_PREFIX } from './seed-plan';
+import { DEMO_USERNAME_PREFIX } from './seed-plan';
 
 /**
  * The demo content: who the demo users are and what they post, like, save, follow,
@@ -12,11 +12,13 @@ import { DEMO_EMAIL_DOMAIN, DEMO_USERNAME_PREFIX } from './seed-plan';
 const POST_SIZE = { width: 540, height: 960 } as const;
 const AVATAR_SIZE = { width: 256, height: 256 } as const;
 
-/** One demo user. `key` is the username without the prefix. */
+/**
+ * One demo user. `key` is the username without the prefix. The email depends on SEED_ENV,
+ * so it is not part of the content: see demoEmail in seed-plan.ts.
+ */
 export interface DemoUserSpec {
   key: DemoUserKey;
   username: string;
-  email: string;
   displayName: string;
   bio: string;
   avatar: DemoImageSpec;
@@ -82,7 +84,6 @@ const PROFILES: Readonly<Record<DemoUserKey, { displayName: string; bio: string 
 export const DEMO_USERS: readonly DemoUserSpec[] = USER_KEYS.map((key, index) => ({
   key,
   username: `${DEMO_USERNAME_PREFIX}${key}`,
-  email: `demo.${key}@${DEMO_EMAIL_DOMAIN}`,
   ...PROFILES[key],
   avatar: {
     ...AVATAR_SIZE,

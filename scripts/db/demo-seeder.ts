@@ -3,6 +3,7 @@ import type { INestApplicationContext } from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { escapeLikePattern } from '../../src/common/utils/like-pattern';
+import type { SeedEnv } from '../../src/config/env.validation';
 import { FirebaseAuthService } from '../../src/firebase/firebase-auth.service';
 import { FirebaseStorageService } from '../../src/firebase/firebase-storage.service';
 import { UserNotFoundError } from '../../src/firebase/firebase.errors';
@@ -37,6 +38,7 @@ import {
 import {
   classifyDemoUser,
   DEMO_USERNAME_PREFIX,
+  demoEmail,
   type DemoFirebaseAccount,
   missingByKey,
   planReset,
@@ -62,6 +64,8 @@ export interface DemoDataTotals {
  * code paths as real requests. Every input is validated with the same DTO class and
  * options as the global ValidationPipe. Every step is idempotent: it first reads what
  * exists and only creates what is missing, or calls a service that is idempotent itself.
+ * Firebase accounts are only ever looked up by this environment's demo emails (SEED_ENV),
+ * so another environment's demo accounts in the shared Firebase project are never touched.
  */
 export class DemoSeeder {
   private readonly logger = new Logger(DemoSeeder.name);
@@ -82,10 +86,12 @@ export class DemoSeeder {
    * @param app - A started application context of AppModule. The feature modules do not
    *   export their services; `get` looks them up across all modules.
    * @param password - The shared demo password (SEED_DEMO_PASSWORD). Never logged.
+   * @param seedEnv - The environment being seeded (SEED_ENV); part of every demo email.
    */
   constructor(
     app: INestApplicationContext,
     private readonly password: string,
+    private readonly seedEnv: SeedEnv,
   ) {
     this.prisma = app.get(PrismaService);
     this.firebaseAuth = app.get(FirebaseAuthService);
@@ -123,8 +129,9 @@ export class DemoSeeder {
   }
 
   /**
-   * Deletes every demo user completely: their Storage folders, Firebase accounts and
-   * users rows (which cascade to everything they own). Their likes and comments on other
+   * Deletes every demo user of this environment completely: their Storage folders,
+   * Firebase accounts and users rows (which cascade to everything they own). Accounts of
+   * other environments are never looked up, so never deleted (see planReset). Their likes and comments on other
    * users' posts are removed through the services first, because a cascade would delete
    * those rows without decrementing the posts' counters (ADR-006).
    *
@@ -138,13 +145,14 @@ export class DemoSeeder {
       select: { id: true, firebaseUid: true, username: true },
     });
     const accounts: DemoFirebaseAccount[] = [];
-    for (const { email } of DEMO_USERS) {
+    const demoEmails = DEMO_USERS.map((spec) => this.emailOf(spec));
+    for (const email of demoEmails) {
       const account = await this.firebaseAuth.findUserByEmail(email);
       if (account) {
         accounts.push({ email, uid: account.uid });
       }
     }
-    const plan = planReset(rows, accounts, new Set(DEMO_USERS.map((user) => user.email)));
+    const plan = planReset(rows, accounts, new Set(demoEmails));
 
     await this.removeEngagementOnOtherPosts(plan.userIds);
     for (const prefix of plan.storagePrefixes) {
@@ -218,14 +226,14 @@ export class DemoSeeder {
 
   private async ensureUser(spec: DemoUserSpec): Promise<User> {
     const row = await this.prisma.user.findUnique({ where: { username: spec.username } });
-    const account = await this.firebaseAuth.findUserByEmail(spec.email);
+    const account = await this.firebaseAuth.findUserByEmail(this.emailOf(spec));
     const action = classifyDemoUser(row, account?.uid ?? null);
     if (action.kind === 'keep' && row) {
       return row;
     }
     if (action.kind === 'create') {
       // Leftovers of an interrupted run: sign-up would fail on the email or username.
-      if (action.deleteUserId !== undefined || action.deleteFirebaseUid !== undefined) {
+      if (action.deleteUserId !== undefined || action.deleteFirebaseUids.length > 0) {
         this.logger.warn(`Removing incomplete leftovers of ${spec.username} before sign-up`);
       }
       if (action.deleteUserId !== undefined) {
@@ -234,8 +242,8 @@ export class DemoSeeder {
         await this.storage.deleteObjectsWithPrefix(`avatars/${action.deleteUserId}/`);
         await this.prisma.user.delete({ where: { id: action.deleteUserId } });
       }
-      if (action.deleteFirebaseUid !== undefined) {
-        await this.deleteFirebaseUserIfPresent(action.deleteFirebaseUid);
+      for (const uid of action.deleteFirebaseUids) {
+        await this.deleteFirebaseUserIfPresent(uid);
       }
     }
     // The session tokens in the result are discarded unread.
@@ -402,9 +410,13 @@ export class DemoSeeder {
     }
   }
 
+  private emailOf(spec: DemoUserSpec): string {
+    return demoEmail(spec.key, this.seedEnv);
+  }
+
   private signupInput(spec: DemoUserSpec): Record<string, unknown> {
     return {
-      email: spec.email,
+      email: this.emailOf(spec),
       password: this.password,
       username: spec.username,
       displayName: spec.displayName,

@@ -10,6 +10,7 @@
 | 0.4         | 07 Nov 2026 | Chathuni Gunasena | FR-FEED-09 refined: TikTok-style custom video controls.      |
 | 0.5         | 08 Nov 2026 | Chathuni Gunasena | Added FR-MSG-06 (unread messages badge in navigation).      |
 | 0.6         | 08 Nov 2026 | Chathuni Gunasena | FR-FEED-10 refined: previous/next feed controls replace the scrollbar.      |
+| 0.7         | 09 Nov 2026 | Chathuni Gunasena | NFR-MNT-01 updated: names each repository’s linter (oxlint for rocky-api, ESLint for rocky-web).      |
 
 ## 1. Introduction
 
@@ -220,7 +221,7 @@ The system consists of a Next.js web application (frontend) and a NestJS REST AP
 
 ### 4.6 Maintainability
 
-- **NFR-MNT-01:** Code is fully typed TypeScript, with linting (oxlint, including type-aware rules) and formatting (Prettier) enforced.
+- **NFR-MNT-01:** Code is fully typed TypeScript, with linting and formatting enforced: oxlint (including type-aware rules) in rocky-api and ESLint with the Next.js and type-aware rules in rocky-web, plus Prettier in both.
 
 - **NFR-MNT-02:** A CI pipeline runs lint, type check, build, and tests on every pull request.
 
