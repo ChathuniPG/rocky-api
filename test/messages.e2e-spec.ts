@@ -148,6 +148,11 @@ describe('Conversations and messages (e2e, live Firebase)', () => {
     return page.items.map(toConversationItem);
   }
 
+  async function unreadConversations(user: SignedUpTestUser): Promise<unknown> {
+    const response = await api('get', '/conversations/unread-count', user).expect(200);
+    return response.body;
+  }
+
   async function send(user: SignedUpTestUser, conversationId: string, body: string) {
     const response = await api('post', `/conversations/${conversationId}/messages`, user)
       .send({ body })
@@ -396,6 +401,53 @@ describe('Conversations and messages (e2e, live Firebase)', () => {
       expect(page2.items).toHaveLength(1);
       expect(page2.nextCursor).toBeNull();
       expect(readString(page2.items[0], 'id')).not.toBe(readString(page1.items[0], 'id'));
+    });
+  });
+
+  // State on entry: A–B fully read by B, C–B empty, A–C holds A's unread "hello C".
+  describe('unread conversations count', () => {
+    let conversationCB: string;
+
+    it('is zero when every conversation is read or empty', async () => {
+      expect(await unreadConversations(userB)).toEqual({ count: 0 });
+      // A's only unread-for-someone message is A's own, which never counts for A.
+      expect(await unreadConversations(userA)).toEqual({ count: 0 });
+    });
+
+    it('counts several unread messages in one conversation once', async () => {
+      await send(userA, conversationAB, 'five');
+      await send(userA, conversationAB, 'six');
+
+      expect(await unreadConversations(userB)).toEqual({ count: 1 });
+      expect(await unreadConversations(userA)).toEqual({ count: 0 });
+    });
+
+    it('counts unread messages in two conversations as 2', async () => {
+      const opened = await api('post', '/conversations', userC)
+        .send({ recipientId: userB.id })
+        .expect(200);
+      conversationCB = readString(opened.body, 'id');
+      await send(userC, conversationCB, 'hi B');
+
+      expect(await unreadConversations(userB)).toEqual({ count: 2 });
+    });
+
+    it('decreases when a conversation is marked read', async () => {
+      await api('patch', `/conversations/${conversationAB}/read`, userB).expect(204);
+
+      expect(await unreadConversations(userB)).toEqual({ count: 1 });
+    });
+
+    it("never counts another user's conversations", async () => {
+      // C has unread only in A–C; B's unread C–B message is C's own, and A–B is not C's.
+      expect(await unreadConversations(userC)).toEqual({ count: 1 });
+      await api('patch', `/conversations/${conversationCB}/read`, userB).expect(204);
+      expect(await unreadConversations(userB)).toEqual({ count: 0 });
+      expect(await unreadConversations(userC)).toEqual({ count: 1 });
+    });
+
+    it('requires authentication (401)', async () => {
+      await api('get', '/conversations/unread-count', undefined).expect(401);
     });
   });
 });
