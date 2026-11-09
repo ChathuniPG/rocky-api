@@ -14,6 +14,7 @@
 | 0.10        | 08 Nov 2026 | Chathuni Gunasena | Section 7.3: language rule, the most recent deliberate choice wins (FR-SET-03).      |
 | 0.11        | 08 Nov 2026 | Chathuni Gunasena | Section 5.2: added GET /conversations/unread-count (FR-MSG-06).      |
 | 0.12        | 08 Nov 2026 | Chathuni Gunasena | Section 7.2: previous/next feed controls replace the scrollbar (FR-FEED-10).      |
+| 0.13        | 09 Nov 2026 | Chathuni Gunasena | Figures 1–5 embedded as editable draw.io SVG exports; Section 7.4: removed the broken colour-palette image link (the token table is the reference); Section 5.2: logout is public, matching the code.      |
 
 ## 1. Purpose
 
@@ -37,9 +38,9 @@ Nginx is the single public entry point. It routes requests by path, so the brows
 
 Figure 1 shows the deployed system, including how Nginx routes traffic and which components communicate with PostgreSQL and Firebase.
 
-![System architecture and deployment](diagrams/fig1-architecture.png)
+![System architecture](diagrams/rocky_system_architecture.drawio.svg)
 
-*Figure 1: System architecture and deployment of R.O.C.K.Y. on a single AWS EC2 instance*
+*Figure 1: System architecture: deployment of R.O.C.K.Y. on a single AWS EC2 instance*
 
 ### 2.3 Communication Rules
 
@@ -113,9 +114,9 @@ After sign-up or login, NestJS sets two cookies on the response. Both are httpOn
 
 Figure 2 illustrates the complete authentication lifecycle described in Sections 3.2 to 3.6.
 
-![Authentication sequence diagram](diagrams/fig2-auth-sequence.png)
+![Authentication flow](diagrams/rocky_authentication_flow.drawio.svg)
 
-*Figure 2: Sequence diagram of login, an authenticated API request, and automatic ID token refresh*
+*Figure 2: Authentication flow: login, an authenticated API request, and automatic ID token refresh*
 
 ## 4. Data Model
 
@@ -242,9 +243,9 @@ The ordering rule (user_a_id \< user_b_id) guarantees only one conversation can 
 
 Figure 3 shows the complete schema, including keys and relationship cardinalities.
 
-![Entity-relationship diagram](diagrams/fig3-erd.png)
+![Database ERD](diagrams/rocky_database_schema_erd.drawio.svg)
 
-*Figure 3: Entity-relationship diagram of the R.O.C.K.Y. PostgreSQL schema (crow’s foot notation)*
+*Figure 3: Database ERD: the R.O.C.K.Y. PostgreSQL schema (crow’s foot notation)*
 
 ## 5. API Contract
 
@@ -271,7 +272,7 @@ Figure 3 shows the complete schema, including keys and relationship cardinalitie
 | POST       | /auth/signup  | Public. Create account, set cookies.                |
 | POST       | /auth/login   | Public. Log in, set cookies.                        |
 | POST       | /auth/refresh | Public (uses refresh cookie). Issue a new ID token. |
-| POST       | /auth/logout  | Revoke tokens, clear cookies.                       |
+| POST       | /auth/logout  | Public (works with an expired ID token). Identifies the user from either cookie when possible, revokes their refresh tokens, and always clears both cookies. |
 | GET        | /auth/me      | Current user’s profile and settings.                |
 
 #### Users
@@ -339,9 +340,9 @@ Conversations of other users are reported as 404, so their existence is not reve
 
 Figure 4 shows how the Upload and Posts endpoints work together to create a post, implementing the two-step upload decided in ADR-007.
 
-![Post creation sequence diagram](diagrams/fig4-post-upload-sequence.png)
+![Post creation with media upload](diagrams/rocky_post_creation_media_upload.drawio.svg)
 
-*Figure 4: Sequence diagram of creating a post with a media upload to Firebase Storage*
+*Figure 4: Post creation with media upload to Firebase Storage*
 
 ## 6. Backend Module Structure (rocky-api)
 
@@ -382,9 +383,9 @@ Route protection follows ADR-013. The app routes are protected on the client: an
 
 Figure 5 summarizes the route structure and how authentication controls access.
 
-![Frontend route map](diagrams/fig5-route-map.png)
+![Frontend route map](diagrams/rocky_frontend_route_map.drawio.svg)
 
-*Figure 5: Frontend route map and layouts of rocky-web*
+*Figure 5: Frontend route map: routes and layouts of rocky-web*
 
 ### 7.2 Layout
 
@@ -427,8 +428,6 @@ Figure 5 summarizes the route structure and how authentication controls access.
 | Background       | \#FAFAFB  | \#0F0B1A |
 | Surface          | \#FFFFFF  | \#1A1428 |
 | Text             | \#1A1428  | \#F4F2F8 |
-
-![Colour palette for light and dark themes](diagrams/colour-palette.png)
 
 - **Purple** is used for primary actions, active navigation, and focus rings.
 
