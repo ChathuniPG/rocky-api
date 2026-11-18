@@ -18,6 +18,7 @@ import {
   Min,
   validateSync,
 } from 'class-validator';
+import { GOOGLE_OAUTH_CALLBACK_PATH } from '../common/auth/auth-cookies';
 
 /** Runtime environments the API supports. */
 export enum NodeEnv {
@@ -106,6 +107,31 @@ export class EnvironmentVariables {
   @IsBoolean({ message: 'COOKIE_SECURE must be true or false' })
   COOKIE_SECURE: boolean = true;
 
+  // Google sign-in (issue #42, ADR-015): the Web OAuth client that Firebase created for the
+  // Google provider (Google Cloud console > APIs & Services > Credentials). The client ID
+  // is public, but checking its shape catches a pasted secret or project number early.
+  @Matches(/^\S+\.apps\.googleusercontent\.com$/, {
+    message:
+      'GOOGLE_OAUTH_CLIENT_ID must be an OAuth client ID ending in .apps.googleusercontent.com',
+  })
+  GOOGLE_OAUTH_CLIENT_ID: string;
+
+  // Sent only to Google's token endpoint. A secret: never logged, never echoed below.
+  @Matches(/^\S+$/, {
+    message: 'GOOGLE_OAUTH_CLIENT_SECRET must be a non-empty value without spaces',
+  })
+  GOOGLE_OAUTH_CLIENT_SECRET: string;
+
+  // Where Google sends the browser back: the public web origin plus the callback path,
+  // e.g. https://rocky-social.duckdns.org/api/v1/auth/google/callback, or locally
+  // http://localhost:3000/... through the Next.js rewrite (ADR-004). It must be registered
+  // on the OAuth client exactly. The path and the https rule are checked in validateEnv.
+  @IsUrl(
+    { protocols: ['http', 'https'], require_protocol: true, require_tld: false },
+    { message: 'GOOGLE_OAUTH_REDIRECT_URI must be an http:// or https:// URL' },
+  )
+  GOOGLE_OAUTH_REDIRECT_URI: string;
+
   // Shared password of the demo users created by `npm run db:seed`. The API itself never
   // reads it; the seed requires it and checks it against the sign-up password rules
   // (SignupDto). Optional here so that the API starts without it. Never logged.
@@ -165,14 +191,48 @@ export function validateEnv(config: Record<string, unknown>): EnvironmentVariabl
     throw new Error(`Invalid environment configuration:\n${formatErrors(errors)}`);
   }
 
-  // ADR-003: auth cookies must never travel over plain http in production.
-  if (validated.NODE_ENV === NodeEnv.Production && !validated.COOKIE_SECURE) {
-    throw new Error(
-      'Invalid environment configuration:\n  - COOKIE_SECURE: COOKIE_SECURE must be true in production',
-    );
+  const crossFieldErrors = checkCrossFieldRules(validated);
+  if (crossFieldErrors.length > 0) {
+    throw new Error(`Invalid environment configuration:\n${crossFieldErrors.join('\n')}`);
   }
 
   return validated;
+}
+
+/**
+ * Rules that class-validator decorators cannot express: they depend on NODE_ENV or on
+ * parsing a value. Returns one formatted line per failure, never containing a value.
+ */
+function checkCrossFieldRules(env: EnvironmentVariables): string[] {
+  const failures: string[] = [];
+  const production = env.NODE_ENV === NodeEnv.Production;
+
+  // ADR-003: auth cookies must never travel over plain http in production.
+  if (production && !env.COOKIE_SECURE) {
+    failures.push('  - COOKIE_SECURE: COOKIE_SECURE must be true in production');
+  }
+
+  // @IsUrl already accepted the value, so parsing succeeds.
+  const redirectUri = new URL(env.GOOGLE_OAUTH_REDIRECT_URI);
+  // The callback route is fixed; any other path would send Google's code to a page that
+  // cannot complete the sign-in.
+  if (
+    redirectUri.pathname !== GOOGLE_OAUTH_CALLBACK_PATH ||
+    redirectUri.search !== '' ||
+    redirectUri.hash !== ''
+  ) {
+    failures.push(
+      `  - GOOGLE_OAUTH_REDIRECT_URI: GOOGLE_OAUTH_REDIRECT_URI must have the path ${GOOGLE_OAUTH_CALLBACK_PATH} and no query or fragment`,
+    );
+  }
+  // The authorization code travels in this URL, so production must use https.
+  if (production && redirectUri.protocol !== 'https:') {
+    failures.push(
+      '  - GOOGLE_OAUTH_REDIRECT_URI: GOOGLE_OAUTH_REDIRECT_URI must use https in production',
+    );
+  }
+
+  return failures;
 }
 
 /**
