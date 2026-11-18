@@ -55,7 +55,7 @@ const SESSION_ENDING_REFRESH_ERRORS: ReadonlySet<FirebaseErrorCode> = new Set<Fi
 ]);
 
 /**
- * Sign-up, login, token refresh, logout (design Â§3.3-3.6) and the profile setup of new
+ * Sign-up, login, token refresh, logout (design §3.3-3.6) and the profile setup of new
  * Google users (issue #42). Coordinates Firebase (the credentials) and PostgreSQL (the
  * profile). Returns tokens to the controller, which owns the cookies.
  */
@@ -70,7 +70,7 @@ export class AuthService {
   ) {}
 
   /**
-   * Creates an account (design Â§3.3): checks the username, creates the Firebase user,
+   * Creates an account (design §3.3): checks the username, creates the Firebase user,
    * inserts the users row, then signs the user in.
    *
    * @param dto - Validated and normalised sign-up data.
@@ -99,7 +99,7 @@ export class AuthService {
   }
 
   /**
-   * Signs a user in with email and password (design Â§3.4).
+   * Signs a user in with email and password (design §3.4).
    *
    * @param dto - Validated and normalised login data.
    * @returns The user's profile and session tokens.
@@ -122,7 +122,7 @@ export class AuthService {
   }
 
   /**
-   * Exchanges the refresh token for new tokens (design Â§3.6, FR-AUTH-08).
+   * Exchanges the refresh token for new tokens (design §3.6, FR-AUTH-08).
    *
    * @param refreshToken - The rocky_refresh cookie value, if present.
    * @returns The new session tokens.
@@ -147,7 +147,7 @@ export class AuthService {
   }
 
   /**
-   * Revokes the user's refresh tokens (design Â§3.6, FR-AUTH-06) if the user can be
+   * Revokes the user's refresh tokens (design §3.6, FR-AUTH-06) if the user can be
    * identified from either cookie. Never throws: logout must always succeed so the
    * controller can clear the cookies.
    *
@@ -286,7 +286,7 @@ export class AuthService {
   }
 
   /**
-   * Inserts the users row. If that fails, deletes the Firebase user (design Â§3.3,
+   * Inserts the users row. If that fails, deletes the Firebase user (design §3.3,
    * step 5), so no Firebase account is left without a profile.
    */
   private async insertUserOrCompensate(firebaseUid: string, dto: SignupDto): Promise<User> {
