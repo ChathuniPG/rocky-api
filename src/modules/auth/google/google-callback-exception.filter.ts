@@ -5,6 +5,7 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
+import { ThrottlerException } from '@nestjs/throttler';
 import type { Response } from 'express';
 import { AuthCookieService } from '../auth-cookie.service';
 import { GOOGLE_SIGN_IN_FAILED_PATH } from './google-auth.service';
@@ -33,16 +34,28 @@ export class GoogleCallbackExceptionFilter implements ExceptionFilter {
    */
   catch(exception: unknown, host: ArgumentsHost): void {
     const response = host.switchToHttp().getResponse<Response>();
-
-    // Name only: messages of unexpected errors can contain request data.
-    const name = exception instanceof Error ? exception.name : 'unknown error';
-    const stack = exception instanceof Error ? exception.stack : undefined;
-    this.logger.error(`Google sign-in callback failed: ${name}`, stack);
+    this.log(exception);
 
     if (response.headersSent) {
       return;
     }
     this.cookies.clearOAuthCookie(response);
     response.redirect(HttpStatus.FOUND, GOOGLE_SIGN_IN_FAILED_PATH);
+  }
+
+  /**
+   * Rate limiting is the throttler working as intended (NFR-SEC-05), so it is a short
+   * warning; a stack trace would only point into the throttler guard. Anything else is
+   * unexpected and keeps ERROR with the stack. Names only: messages of unexpected errors
+   * can contain request data.
+   */
+  private log(exception: unknown): void {
+    if (exception instanceof ThrottlerException) {
+      this.logger.warn('Google sign-in callback rate limited');
+      return;
+    }
+    const name = exception instanceof Error ? exception.name : 'unknown error';
+    const stack = exception instanceof Error ? exception.stack : undefined;
+    this.logger.error(`Google sign-in callback failed: ${name}`, stack);
   }
 }
