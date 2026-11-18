@@ -31,6 +31,9 @@ import {
   REFRESH_COOKIE_PATH,
   REFRESH_TOKEN_COOKIE,
 } from '../../common/auth/auth-cookies';
+import type { VerifiedIdentity } from '../../common/auth/authenticated-request';
+import { AllowIncompleteProfile } from '../../common/decorators/allow-incomplete-profile.decorator';
+import { CurrentIdentity } from '../../common/decorators/current-identity.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { ApiErrorResponses } from '../../common/swagger/api-error-responses.decorator';
@@ -40,6 +43,8 @@ import { AuthCookieService } from './auth-cookie.service';
 import { AuthService } from './auth.service';
 import { GoogleSignInQueryDto } from './dto/google-sign-in-query.dto';
 import { LoginDto } from './dto/login.dto';
+import { ProfileSetupResponseDto } from './dto/profile-setup-response.dto';
+import { ProfileSetupDto } from './dto/profile-setup.dto';
 import { SignupDto } from './dto/signup.dto';
 import { UserResponseDto } from './dto/user-response.dto';
 import { GoogleCallbackExceptionFilter } from './google/google-callback-exception.filter';
@@ -277,6 +282,59 @@ export class AuthController {
       this.cookies.setSessionCookies(response, outcome.session);
     }
     response.redirect(HttpStatus.FOUND, outcome.redirectPath);
+  }
+
+  /**
+   * Prefills the /welcome form of a signed-in user who has no profile yet, typically a new
+   * Google user (FR-AUTH-10). `@AllowIncompleteProfile()` lets the request past the
+   * PROFILE_INCOMPLETE rule; the token is still required.
+   */
+  @AllowIncompleteProfile()
+  @AuthThrottle()
+  @Get('profile-setup')
+  @ApiCookieAuth(ID_TOKEN_COOKIE)
+  @ApiOperation({ summary: 'Suggested values for completing a new profile' })
+  @ApiOkResponse({ type: ProfileSetupResponseDto })
+  @ApiErrorResponses(
+    { status: HttpStatus.BAD_REQUEST, description: 'The account has no email address.' },
+    HttpStatus.UNAUTHORIZED,
+    { status: HttpStatus.CONFLICT, description: 'The profile already exists.' },
+    HttpStatus.TOO_MANY_REQUESTS,
+    HttpStatus.SERVICE_UNAVAILABLE,
+  )
+  getProfileSetup(@CurrentIdentity() identity: VerifiedIdentity): Promise<ProfileSetupResponseDto> {
+    return this.authService.getProfileSetup(identity);
+  }
+
+  /**
+   * Creates the profile of a signed-in user who has none yet (FR-AUTH-10), with the same
+   * username and display name rules as sign-up. Afterwards every endpoint works normally;
+   * the session cookies stay as they are.
+   */
+  @AllowIncompleteProfile()
+  @AuthThrottle()
+  @Post('profile-setup')
+  @ApiCookieAuth(ID_TOKEN_COOKIE)
+  @ApiOperation({ summary: 'Complete a new profile (choose a username)' })
+  @ApiCreatedResponse({ type: UserResponseDto, description: 'Profile created.' })
+  @ApiErrorResponses(
+    {
+      status: HttpStatus.BAD_REQUEST,
+      description: 'Invalid or reserved username, invalid display name, or no account email.',
+    },
+    HttpStatus.UNAUTHORIZED,
+    {
+      status: HttpStatus.CONFLICT,
+      description: 'The profile already exists, or the username or email is taken.',
+    },
+    HttpStatus.TOO_MANY_REQUESTS,
+    HttpStatus.SERVICE_UNAVAILABLE,
+  )
+  completeProfileSetup(
+    @CurrentIdentity() identity: VerifiedIdentity,
+    @Body() dto: ProfileSetupDto,
+  ): Promise<UserResponseDto> {
+    return this.authService.completeProfileSetup(identity, dto);
   }
 
   /** Returns the signed-in user's profile and settings. */

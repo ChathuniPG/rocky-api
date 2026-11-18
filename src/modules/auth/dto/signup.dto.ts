@@ -2,7 +2,11 @@ import { ApiProperty } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { IsEmail, IsNotIn, IsString, Length, Matches, MaxLength, MinLength } from 'class-validator';
 import { trim, trimAndLowercase } from '../../../common/utils/string-transforms';
-import { RESERVED_USERNAME, RESERVED_USERNAMES } from '../../users/users.constants';
+import {
+  MAX_DISPLAY_NAME_LENGTH,
+  RESERVED_USERNAME,
+  RESERVED_USERNAMES,
+} from '../../users/users.constants';
 
 /** Upper bound for passwords: blocks oversized payloads; far above any real password. */
 export const PASSWORD_MAX_LENGTH = 128;
@@ -60,9 +64,16 @@ export class SignupDto {
   @IsNotIn(RESERVED_USERNAMES, { message: RESERVED_USERNAME })
   username: string;
 
-  @ApiProperty({ minLength: 1, maxLength: 50, example: 'Alice', description: 'Trimmed.' })
+  @ApiProperty({
+    minLength: 1,
+    maxLength: MAX_DISPLAY_NAME_LENGTH,
+    example: 'Alice',
+    description: 'Trimmed.',
+  })
   @Transform(trim)
   @IsString()
-  @Length(1, 50, { message: 'displayName must be between 1 and 50 characters long' })
+  @Length(1, MAX_DISPLAY_NAME_LENGTH, {
+    message: `displayName must be between 1 and ${MAX_DISPLAY_NAME_LENGTH} characters long`,
+  })
   displayName: string;
 }

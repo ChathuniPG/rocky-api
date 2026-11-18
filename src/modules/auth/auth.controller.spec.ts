@@ -8,6 +8,7 @@ import request from 'supertest';
 import { cookieHeader, findSetCookie, setCookieValue } from '../../../test/helpers/cookies';
 import { buildUser } from '../../../test/fixtures/user.fixture';
 import { configureApp } from '../../app.setup';
+import type { VerifiedIdentity } from '../../common/auth/authenticated-request';
 import type { FirebaseSession } from '../../firebase/firebase-auth-rest.client';
 import { FirebaseUnavailableError, TooManyAttemptsError } from '../../firebase/firebase.errors';
 import type { User } from '../../generated/prisma/client';
@@ -34,6 +35,8 @@ const validSignup = {
   displayName: '  Alice  ',
 };
 
+const identity: VerifiedIdentity = { uid: user.firebaseUid, email: user.email, name: 'Alice' };
+
 /** When set, FakeAuthGuard throws it, e.g. to simulate the throttler's 429. */
 let guardError: Error | undefined;
 
@@ -43,7 +46,11 @@ class FakeAuthGuard implements CanActivate {
     if (guardError) {
       throw guardError;
     }
-    context.switchToHttp().getRequest<{ user?: User }>().user = user;
+    const httpRequest = context
+      .switchToHttp()
+      .getRequest<{ user?: User; identity?: VerifiedIdentity }>();
+    httpRequest.identity = identity;
+    httpRequest.user = user;
     return true;
   }
 }
@@ -57,6 +64,8 @@ describe('AuthController (HTTP)', () => {
     login: jest.fn(),
     refresh: jest.fn(),
     logout: jest.fn(),
+    getProfileSetup: jest.fn(),
+    completeProfileSetup: jest.fn(),
   };
   const googleAuth = { startSignIn: jest.fn(), completeSignIn: jest.fn() };
   let app: NestExpressApplication;
@@ -408,6 +417,55 @@ describe('AuthController (HTTP)', () => {
       const response = await request(app.getHttpServer()).get('/api/v1/auth/google').expect(429);
 
       expect(response.body).toMatchObject({ statusCode: 429 });
+    });
+  });
+
+  describe('GET /auth/profile-setup', () => {
+    it('returns the suggestion for the verified identity', async () => {
+      const suggestion = {
+        email: 'alice@example.com',
+        displayName: 'Alice',
+        suggestedUsername: 'alice',
+      };
+      authService.getProfileSetup.mockResolvedValue(suggestion);
+
+      const response = await request(app.getHttpServer())
+        .get('/api/v1/auth/profile-setup')
+        .expect(200);
+
+      expect(response.body).toEqual(suggestion);
+      expect(authService.getProfileSetup).toHaveBeenCalledWith(identity);
+    });
+  });
+
+  describe('POST /auth/profile-setup', () => {
+    it('normalises the body and returns 201 with the new profile', async () => {
+      authService.completeProfileSetup.mockResolvedValue(UserResponseDto.fromUser(user));
+
+      const response = await request(app.getHttpServer())
+        .post('/api/v1/auth/profile-setup')
+        .send({ username: ' Alice ', displayName: '  Alice  ' })
+        .expect(201);
+
+      expect(authService.completeProfileSetup).toHaveBeenCalledWith(identity, {
+        username: 'alice',
+        displayName: 'Alice',
+      });
+      expect(response.body).toMatchObject({ id: user.id, username: 'alice' });
+      expect(findSetCookie(response, 'rocky_id')).toBeUndefined();
+    });
+
+    it.each([
+      ['a reserved username', { username: 'welcome', displayName: 'Alice' }],
+      ['a missing display name', { username: 'alice' }],
+      [
+        'an email, which only the token may set',
+        { username: 'alice', displayName: 'A', email: 'x@y.z' },
+      ],
+    ])('rejects %s with 400', async (_label, body) => {
+      await request(app.getHttpServer()).post('/api/v1/auth/profile-setup').send(body).expect(400);
+
+      expect(authService.completeProfileSetup).not.toHaveBeenCalled();
     });
   });
 });
