@@ -5,22 +5,28 @@ import {
   HttpCode,
   HttpStatus,
   Post,
+  Query,
   Req,
   Res,
   UnauthorizedException,
+  UseFilters,
 } from '@nestjs/common';
 import {
   ApiCookieAuth,
   ApiCreatedResponse,
+  ApiFoundResponse,
   ApiNoContentResponse,
   ApiOkResponse,
   ApiOperation,
+  ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import {
   ID_TOKEN_COOKIE,
+  OAUTH_COOKIE,
+  OAUTH_COOKIE_PATH,
   readCookie,
   REFRESH_COOKIE_PATH,
   REFRESH_TOKEN_COOKIE,
@@ -32,9 +38,17 @@ import { AUTH_THROTTLE, DEFAULT_THROTTLER } from '../../common/throttling/thrott
 import type { User } from '../../generated/prisma/client';
 import { AuthCookieService } from './auth-cookie.service';
 import { AuthService } from './auth.service';
+import { GoogleSignInQueryDto } from './dto/google-sign-in-query.dto';
 import { LoginDto } from './dto/login.dto';
 import { SignupDto } from './dto/signup.dto';
 import { UserResponseDto } from './dto/user-response.dto';
+import { GoogleCallbackExceptionFilter } from './google/google-callback-exception.filter';
+import {
+  GOOGLE_ACCOUNT_EXISTS_PATH,
+  GOOGLE_SIGN_IN_FAILED_PATH,
+  GoogleAuthService,
+  WELCOME_PATH,
+} from './google/google-auth.service';
 
 /** NFR-SEC-05: stricter per-IP limit for the endpoints that hit Firebase with credentials. */
 const AuthThrottle = (): MethodDecorator & ClassDecorator =>
@@ -44,6 +58,18 @@ const AuthThrottle = (): MethodDecorator & ClassDecorator =>
 const SESSION_COOKIE_HEADERS = {
   'Set-Cookie': {
     description: `Sets the httpOnly session cookies ${ID_TOKEN_COOKIE} (path /) and ${REFRESH_TOKEN_COOKIE} (path ${REFRESH_COOKIE_PATH}).`,
+    schema: { type: 'string' },
+  },
+};
+
+/** OpenAPI description of the Set-Cookie headers of a successful Google callback. */
+const GOOGLE_CALLBACK_HEADERS = {
+  Location: {
+    description: `returnTo for an existing user, ${WELCOME_PATH}?returnTo=... for a new one, ${GOOGLE_SIGN_IN_FAILED_PATH} or ${GOOGLE_ACCOUNT_EXISTS_PATH} on failure.`,
+    schema: { type: 'string' },
+  },
+  'Set-Cookie': {
+    description: `Always clears ${OAUTH_COOKIE}. On success also sets ${ID_TOKEN_COOKIE} and ${REFRESH_TOKEN_COOKIE}, exactly like login.`,
     schema: { type: 'string' },
   },
 };
@@ -58,6 +84,7 @@ const SESSION_COOKIE_HEADERS = {
 export class AuthController {
   constructor(
     private readonly authService: AuthService,
+    private readonly googleAuth: GoogleAuthService,
     private readonly cookies: AuthCookieService,
   ) {}
 
@@ -181,6 +208,75 @@ export class AuthController {
       readCookie(request, REFRESH_TOKEN_COOKIE),
     );
     this.cookies.clearSessionCookies(response);
+  }
+
+  /**
+   * Starts Google sign-in (issue #42, ADR-015): stores the state, PKCE verifier and
+   * returnTo in rocky_oauth and redirects the browser to Google's consent screen. Opened
+   * by a full-page navigation from rocky-web, never by fetch.
+   */
+  @Public()
+  @AuthThrottle()
+  @Get('google')
+  @ApiOperation({
+    summary: 'Start Google sign-in (browser redirect)',
+    description: 'Open in the browser, not with fetch: the response is a redirect to Google.',
+  })
+  @ApiFoundResponse({
+    description: "Redirect to Google's consent screen.",
+    headers: {
+      Location: { description: 'Google authorization URL.', schema: { type: 'string' } },
+      'Set-Cookie': {
+        description: `Sets the httpOnly ${OAUTH_COOKIE} cookie (path ${OAUTH_COOKIE_PATH}, 10 minutes).`,
+        schema: { type: 'string' },
+      },
+    },
+  })
+  @ApiErrorResponses(HttpStatus.BAD_REQUEST, HttpStatus.TOO_MANY_REQUESTS)
+  startGoogleSignIn(@Query() query: GoogleSignInQueryDto, @Res() response: Response): void {
+    const { authorizationUrl, oauthCookie } = this.googleAuth.startSignIn(query.returnTo);
+    this.cookies.setOAuthCookie(response, oauthCookie);
+    response.redirect(HttpStatus.FOUND, authorizationUrl);
+  }
+
+  /**
+   * Google's redirect back after the consent screen (issue #42). Always answers with a
+   * redirect, never JSON: on success it sets the session cookies like login; every failure,
+   * including a cancelled consent, ends on the login page. Only `code`, `state` and
+   * `error` are read, as raw values, so the other parameters Google adds are ignored
+   * instead of failing validation; the service checks the values.
+   */
+  @Public()
+  @AuthThrottle()
+  @Get('google/callback')
+  @UseFilters(GoogleCallbackExceptionFilter)
+  @ApiOperation({
+    summary: 'Google OAuth callback (browser redirect)',
+    description:
+      'Called by Google, not by clients. Any other query parameters are ignored. Errors, ' +
+      'including rate limiting, are redirects to the login page, never JSON.',
+  })
+  @ApiQuery({ name: 'code', required: false, description: 'Authorization code from Google.' })
+  @ApiQuery({ name: 'state', required: false, description: 'Must match the rocky_oauth cookie.' })
+  @ApiQuery({ name: 'error', required: false, description: 'Set by Google, e.g. access_denied.' })
+  @ApiFoundResponse({ description: 'Redirect into rocky-web.', headers: GOOGLE_CALLBACK_HEADERS })
+  async googleCallback(
+    @Query('code') code: unknown,
+    @Query('state') state: unknown,
+    @Query('error') error: unknown,
+    @Req() request: Request,
+    @Res() response: Response,
+  ): Promise<void> {
+    const outcome = await this.googleAuth.completeSignIn(
+      { code, state, error },
+      readCookie(request, OAUTH_COOKIE),
+    );
+    // One attempt, one use: the state and verifier are gone whatever the outcome.
+    this.cookies.clearOAuthCookie(response);
+    if (outcome.session) {
+      this.cookies.setSessionCookies(response, outcome.session);
+    }
+    response.redirect(HttpStatus.FOUND, outcome.redirectPath);
   }
 
   /** Returns the signed-in user's profile and settings. */
