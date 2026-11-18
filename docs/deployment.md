@@ -704,6 +704,36 @@ curl -sI http://rocky-social.duckdns.org/ | grep -i strict-transport    # nothin
 curl -sI http://rocky-social.duckdns.org/ | grep -i '^server'           # "Server: nginx", no version
 ```
 
+### 16.10 Privacy page
+
+`https://rocky-social.duckdns.org/privacy` is a static privacy policy, linked from the Google
+OAuth consent screen (issue #42). It is a single HTML file on the server,
+`/var/www/rocky-static/privacy.html`, and is not in either repository. Nginx serves it from the
+`location = /privacy` block in `rocky.conf`; the exact match wins over `location /`, so the
+request never reaches Next.js. The block sets no `add_header`, so the server-level HSTS header
+still applies (16.9).
+
+**On the existing server this is already set up.** The file exists and the live Nginx config
+already contains the block. Nothing needs to be done there. Do **not** copy the repository's
+`rocky.conf` over the live config to get the block: certbot has edited the live file (16.6).
+
+On a fresh server, the block is part of `rocky.conf` as installed in 16.5. Create the file:
+
+```bash
+sudo mkdir -p /var/www/rocky-static
+sudo nano /var/www/rocky-static/privacy.html    # paste the privacy policy HTML
+sudo chmod 644 /var/www/rocky-static/privacy.html
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+Check from your machine:
+
+```bash
+curl -sI https://rocky-social.duckdns.org/privacy
+# HTTP/1.1 200 OK
+# Content-Type: text/html
+```
+
 ## 17. Redeploy
 
 After changes are merged into `main`, on the server:
