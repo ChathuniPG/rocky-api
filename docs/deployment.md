@@ -303,6 +303,9 @@ validates them and the API refuses to start if one is missing or invalid.
 | `FIREBASE_STORAGE_BUCKET`       | Bare bucket name, no `gs://`.                                                     |
 | `FIREBASE_WEB_API_KEY`          | Firebase console → Project settings → General. Treat it as a secret.             |
 | `COOKIE_SECURE`                 | **`true`**. The API refuses to start in production with `false` (ADR-003).        |
+| `GOOGLE_OAUTH_CLIENT_ID`        | Google Cloud console → APIs & Services → Credentials → the Web OAuth client.     |
+| `GOOGLE_OAUTH_CLIENT_SECRET`    | Same OAuth client. Treat it as a secret.                                          |
+| `GOOGLE_OAUTH_REDIRECT_URI`     | `https://<domain>/api/v1/auth/google/callback`, also listed under the client's Authorized redirect URIs. The API refuses to start in production without https (ADR-015). |
 | `SEED_DEMO_PASSWORD`            | Optional. Only needed for the demo seed (below); the API ignores it.             |
 | `SEED_ENV`                      | Optional. **`production`** if you run the demo seed (below); the API ignores it. |
 
@@ -750,6 +753,8 @@ Common causes:
 - `Invalid environment configuration: ...` — a variable in `.env` is missing or invalid. The
   message names the variable but never prints its value. Compare with `.env.example`.
 - `COOKIE_SECURE must be true in production` — set `COOKIE_SECURE=true`.
+- `GOOGLE_OAUTH_REDIRECT_URI must use https in production` or `must have the path
+  /api/v1/auth/google/callback` — set it to `https://<domain>/api/v1/auth/google/callback`.
 - `HOST must be an IPv4 or IPv6 address` — `HOST` must be an IP literal such as `127.0.0.1`,
   not `localhost`; or remove the line to use the default.
 - Service account errors — check `FIREBASE_SERVICE_ACCOUNT_PATH` is absolute and correct,

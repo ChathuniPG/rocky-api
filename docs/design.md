@@ -15,6 +15,7 @@
 | 0.11        | 08 Nov 2026 | Chathuni Gunasena | Section 5.2: added GET /conversations/unread-count (FR-MSG-06).      |
 | 0.12        | 08 Nov 2026 | Chathuni Gunasena | Section 7.2: previous/next feed controls replace the scrollbar (FR-FEED-10).      |
 | 0.13        | 09 Nov 2026 | Chathuni Gunasena | Figures 1–5 embedded as editable draw.io SVG exports; Section 7.4: removed the broken colour-palette image link (the token table is the reference); Section 5.2: logout is public, matching the code.      |
+| 0.14        | 18 Nov 2026 | Chathuni Gunasena | Google sign-in (issue #42): added Section 3.8 and ADR-015; rocky_oauth cookie (3.2), PROFILE_INCOMPLETE rule (3.5), error code field (5.1), Google and profile-setup endpoints (5.2), modules (6), /welcome route (7.1), auth rate limit routes (ADR-012).      |
 
 ## 1. Purpose
 
@@ -58,9 +59,9 @@ Figure 1 shows the deployed system, including how Nginx routes traffic and which
 
 The Firebase Admin SDK can create users and verify tokens, but it cannot verify a password. NestJS therefore uses two Firebase interfaces:
 
-- The **Firebase Auth REST API** for sign-in and token refresh.
+- The **Firebase Auth REST API** for sign-in (signInWithPassword, and signInWithIdp for Google, Section 3.8) and token refresh.
 
-- The **Firebase Admin SDK** for user creation, token verification, and token revocation.
+- The **Firebase Admin SDK** for user creation, token verification, token revocation, and looking up an email’s sign-in providers.
 
 ### 3.2 Token Storage
 
@@ -69,6 +70,10 @@ After sign-up or login, NestJS sets two cookies on the response. Both are httpOn
 - rocky_id: the Firebase ID token (expires in 1 hour).
 
 - rocky_refresh: the Firebase refresh token, scoped to the path /api/v1/auth.
+
+During Google sign-in (Section 3.8) a third, short-lived cookie is used:
+
+- rocky_oauth: the OAuth state, the PKCE code verifier and the validated returnTo path, as JSON. httpOnly, SameSite=Lax, Secure like the others, scoped to /api/v1/auth/google, and expires after 10 minutes. It is cleared by the callback whatever the outcome.
 
 ### 3.3 Sign-Up Flow
 
@@ -100,9 +105,11 @@ After sign-up or login, NestJS sets two cookies on the response. Both are httpOn
 
 2.  FirebaseAuthGuard verifies the token with verifyIdToken(token, checkRevoked: true).
 
-3.  The guard loads the matching user from PostgreSQL and attaches it to the request.
+3.  The guard attaches the verified identity (Firebase UID, email, name) to the request, then loads the matching user from PostgreSQL and attaches it too.
 
-4.  Controllers access the user through a custom @CurrentUser() decorator.
+4.  If no users row exists, the account signed in with Google but has no profile yet. The guard answers 403 with { "code": "PROFILE_INCOMPLETE" }, except on routes marked @AllowIncompleteProfile(): only GET and POST /auth/profile-setup. Logout is public and works as well.
+
+5.  Controllers access the user through a custom @CurrentUser() decorator, or only the identity through @CurrentIdentity() on the profile-setup routes.
 
 ### 3.6 Token Refresh and Logout
 
@@ -117,6 +124,32 @@ Figure 2 illustrates the complete authentication lifecycle described in Sections
 ![Authentication flow](diagrams/rocky_authentication_flow.drawio.svg)
 
 *Figure 2: Authentication flow: login, an authenticated API request, and automatic ID token refresh*
+
+### 3.8 Google Sign-In Flow
+
+Google sign-in follows ADR-015. NestJS runs the whole OAuth 2.0 Authorization Code flow with PKCE, so the browser never handles a Google or Firebase token, and the session ends in the same two cookies as a password login.
+
+1.  The browser navigates (a full page load, not fetch) to GET /api/v1/auth/google?returnTo=<path>.
+
+2.  NestJS checks returnTo with the same safe-redirect rules as rocky-web (anything else becomes /), creates a random state and a PKCE code verifier, and stores state, verifier and returnTo in the rocky_oauth cookie. It redirects (302) to Google’s consent screen with the scopes openid email profile, the state and the S256 code challenge.
+
+3.  Google redirects the browser to GET /api/v1/auth/google/callback?code=…&state=…. Only code, state and error are read; any other parameter Google adds is ignored.
+
+4.  NestJS compares the state with the cookie in constant time, then exchanges the code (with the code verifier and the client secret) at Google’s token endpoint for a Google ID token, and checks its audience, issuer and verified email.
+
+5.  If the email belongs to a Firebase account that signs in with a password only, the flow stops here (see below). Otherwise NestJS calls the Firebase REST signInWithIdp endpoint with the Google ID token and receives a Firebase ID token and refresh token, as with signInWithPassword.
+
+6.  NestJS sets rocky_id and rocky_refresh exactly like login and clears rocky_oauth.
+
+7.  If a users row exists for the Firebase UID, the browser is redirected to returnTo. Otherwise it goes to /welcome?returnTo=<path>, where the user chooses a username: GET /auth/profile-setup prefills the form and POST /auth/profile-setup creates the row.
+
+**Failures.** The callback never answers with JSON. A missing or invalid rocky_oauth cookie, a state mismatch, a cancelled consent (error=access_denied), a failed token exchange, an unverified email, a Firebase error and even rate limiting all end in a redirect to /login?error=google, with rocky_oauth cleared and no session. Logs name the failure reason only, never the code, tokens, verifier or client secret.
+
+**Email already registered with a password (FR-AUTH-11).** For Gmail addresses Google is a trusted provider, and Firebase may let a Google sign-in take over an unverified email/password account and remove its password. NestJS therefore looks up the email’s sign-in providers with the Admin SDK first: if the account has a password but no Google provider, signInWithIdp is not called and the browser goes to /login?error=google_account_exists. If Firebase still answers needConfirmation (another account uses the email) or EMAIL_EXISTS, the result is the same.
+
+**Profile not completed yet.** Until the users row exists, every protected endpoint answers 403 with code PROFILE_INCOMPLETE (Section 3.5). A user who leaves /welcome signs in with Google again later and lands on /welcome again.
+
+> **Note:** Figure 2 does not show the Google flow yet. The diagram is edited manually and will be updated by the developer.
 
 ## 4. Data Model
 
@@ -259,7 +292,7 @@ Figure 3 shows the complete schema, including keys and relationship cardinalitie
 
 - **Pagination:** list endpoints accept cursor and limit (default 15, max 50) and return { "items": \[...\], "nextCursor": "..." \| null }.
 
-- **Error format:** { "statusCode": 400, "error": "Bad Request", "message": "...", "path": "...", "timestamp": "..." }.
+- **Error format:** { "statusCode": 400, "error": "Bad Request", "message": "...", "path": "...", "timestamp": "..." }. An optional "code" field carries a machine-readable reason where the client must react to it, for example 403 with "code": "PROFILE_INCOMPLETE" (Section 3.5).
 
 - **Documentation:** Swagger UI at /api/docs.
 
@@ -274,6 +307,10 @@ Figure 3 shows the complete schema, including keys and relationship cardinalitie
 | POST       | /auth/refresh | Public (uses refresh cookie). Issue a new ID token. |
 | POST       | /auth/logout  | Public (works with an expired ID token). Identifies the user from either cookie when possible, revokes their refresh tokens, and always clears both cookies. |
 | GET        | /auth/me      | Current user’s profile and settings.                |
+| GET        | /auth/google?returnTo= | Public. Starts Google sign-in: sets rocky_oauth and redirects (302) to Google (Section 3.8). Opened by a full page navigation. |
+| GET        | /auth/google/callback | Public. Google’s redirect back. Sets the session cookies and redirects (302) to returnTo, or to /welcome?returnTo= for a new user. Every failure redirects to /login?error=google or /login?error=google_account_exists; never JSON. |
+| GET        | /auth/profile-setup | Signed in, profile not yet created. Returns { email, displayName, suggestedUsername }. 409 if the profile exists. |
+| POST       | /auth/profile-setup | Signed in, profile not yet created. { username, displayName } with the sign-up rules; creates the users row with the UID and email from the token. 409 if the profile exists or the username is taken. |
 
 #### Users
 
@@ -352,7 +389,7 @@ Figure 4 shows how the Upload and Posts endpoints work together to create a post
 | ConfigModule        | Loads and validates environment variables at startup.                              |
 | PrismaModule        | Global database client.                                                            |
 | FirebaseModule      | Initializes the Admin SDK; wraps the Auth REST calls.                              |
-| AuthModule          | Sign-up, login, refresh, logout, guard.                                            |
+| AuthModule          | Sign-up, login, refresh, logout, Google sign-in, profile setup, guard.             |
 | UsersModule         | Profiles, search, follows.                                                         |
 | PostsModule         | Posts, feed, likes, saves, comments.                                               |
 | UploadsModule       | File validation and Firebase Storage uploads.                                      |
@@ -360,7 +397,7 @@ Figure 4 shows how the Upload and Posts endpoints work together to create a post
 | MessagesModule      | Conversations and messages.                                                        |
 | HealthModule        | Health check.                                                                      |
 
-Shared code lives in a common folder: the auth guard, the @CurrentUser() decorator, the global exception filter, pagination helpers, and the request-logging middleware. Request logging is a middleware rather than an interceptor because interceptors run after guards and would miss 401, 429 and 404 responses.
+Shared code lives in a common folder: the auth guard, the @CurrentUser(), @CurrentIdentity() and @AllowIncompleteProfile() decorators, the safe-redirect check, the global exception filter, pagination helpers, and the request-logging middleware. Request logging is a middleware rather than an interceptor because interceptors run after guards and would miss 401, 429 and 404 responses.
 
 ## 7. Frontend Design (rocky-web)
 
@@ -369,6 +406,7 @@ Shared code lives in a common folder: the auth guard, the @CurrentUser() decorat
 | **Route**                   | **Page**                           |
 |-----------------------------|------------------------------------|
 | /login, /signup             | Authentication (no navigation bar) |
+| /welcome                    | Choose a username after the first Google sign-in (no navigation bar) |
 | /                           | Home feed                          |
 | /search                     | Search users                       |
 | /u/\[username\]             | Profile (Posts and Saved tabs)     |
@@ -380,6 +418,8 @@ Shared code lives in a common folder: the auth guard, the @CurrentUser() decorat
 The “Post” navigation item opens a create-post dialog rather than navigating to a separate page.
 
 Route protection follows ADR-013. The app routes are protected on the client: an AuthProvider loads /auth/me, refreshing the session once on a 401, and shows a full-page skeleton until the user is known. If the refresh also fails, the user is redirected to /login?next=<current path>, and after login they return to that path. Only same-site relative paths are accepted for `next`; anything else falls back to /. The Next.js proxy (formerly middleware) only redirects visitors who have a rocky_id cookie away from /login and /signup to /.
+
+“Continue with Google” on /login and /signup is a full page navigation to /api/v1/auth/google?returnTo=<next>, never a fetch, because the API answers with redirects (Section 3.8). When the API answers 403 with code PROFILE_INCOMPLETE, the AuthProvider sends the user to /welcome?returnTo=<current path>. /login shows a message for error=google (sign-in failed or was cancelled) and error=google_account_exists (log in with your password instead).
 
 Figure 5 summarizes the route structure and how authentication controls access.
 
@@ -527,7 +567,7 @@ Figure 5 summarizes the route structure and how authentication controls access.
 
 - **Context:** NFR-SEC-05 requires rate limiting, with stricter limits on authentication endpoints. @nestjs/throttler keeps its counters in memory by default; a shared store such as Redis would add a service to install, secure and monitor on the EC2 instance (ADR-009).
 
-- **Decision:** Use the default in-memory storage, keyed by client IP. Limits are code constants: 100 requests per minute globally, 10 per minute on sign-up, login and refresh, 20 per minute on uploads, and 30 per minute on sending messages. Trust proxy is set to loopback only, so the client IP comes from Nginx's X-Forwarded-For header and cannot be spoofed by a client connecting directly.
+- **Decision:** Use the default in-memory storage, keyed by client IP. Limits are code constants: 100 requests per minute globally, 10 per minute on sign-up, login, refresh, the Google sign-in start and callback, and the two profile-setup endpoints, 20 per minute on uploads, and 30 per minute on sending messages. Trust proxy is set to loopback only, so the client IP comes from Nginx's X-Forwarded-For header and cannot be spoofed by a client connecting directly.
 
 - **Consequences:** No extra infrastructure, and the limits are correct while the API runs as a single process (one PM2 instance, NFR-OPS-01). Counters reset when the process restarts, and they would not be shared if the API ran in PM2 cluster mode or on several instances: each process would allow the full limit. Scaling out requires switching to a shared store (e.g. a Redis-backed throttler storage).
 
@@ -546,3 +586,11 @@ Figure 5 summarizes the route structure and how authentication controls access.
 - **Decision:** Logout, session expiry, login and signup navigate with a full page load (window.location.assign) after clearing the query cache. Post-login destinations still pass through the safe-redirect check. Confirmation toasts survive the reload via sessionStorage.
 
 - **Consequences:** No client state from a previous account can survive a switch: query cache, hidden pages, in-memory singletons, scroll memory and router cache are all reset. Signing in or out costs one full page load, which is acceptable for a rare action.
+
+### ADR-015: Google sign-in via server-side OAuth and Firebase signInWithIdp
+
+- **Context:** Google sign-in was requested as a follow-up feature (issue #42). The usual Firebase approach, signInWithPopup in the browser, would put the Firebase client SDK and tokens into the frontend, against ADR-002 and ADR-003. New Google users also have no username yet, which every profile needs.
+
+- **Decision:** NestJS runs the OAuth 2.0 Authorization Code flow with PKCE (S256) and a state value, kept in the short-lived httpOnly rocky_oauth cookie. It exchanges the code at Google’s token endpoint, passes the Google ID token to the Firebase REST signInWithIdp endpoint, and sets the existing rocky_id and rocky_refresh cookies. The redirect URI and all redirects use the single web origin (ADR-004), so the browser stays on one domain and the API answers with relative paths. An email that already signs in with a password only is refused before signInWithIdp is called. Until a new Google user creates a profile through the profile-setup endpoints, protected endpoints answer 403 PROFILE_INCOMPLETE.
+
+- **Consequences:** The frontend never sees a Google or Firebase token, and the session model, refresh and logout are unchanged. Google’s ID token is not signature-checked by NestJS: it comes directly from Google’s token endpoint over TLS in exchange for the client secret, and Firebase rejects an invalid one (INVALID_IDP_RESPONSE). No nonce is used; state and PKCE protect the code flow. Accounts are not linked: an email registered with a password cannot use Google, so its password can never be removed by a Google sign-in. Firebase can answer needConfirmation when another account already uses the email; that is treated the same way. The callback is a browser navigation, so its errors are redirects to /login rather than JSON. The consent screen may show the domain instead of a logo until the Google brand verification is done. Three new variables are required (GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, GOOGLE_OAUTH_REDIRECT_URI), and the redirect URI must be registered on the OAuth client for every environment.
