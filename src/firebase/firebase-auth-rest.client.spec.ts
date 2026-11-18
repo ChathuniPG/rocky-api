@@ -5,9 +5,11 @@ import {
   FIREBASE_REST_TIMEOUT_MS,
   FirebaseAuthRestClient,
   REFRESH_TOKEN_URL,
+  SIGN_IN_WITH_IDP_URL,
   SIGN_IN_WITH_PASSWORD_URL,
 } from './firebase-auth-rest.client';
 import {
+  EmailAlreadyExistsError,
   FirebaseDomainError,
   FirebaseUnavailableError,
   InvalidCredentialsError,
@@ -24,6 +26,23 @@ const PASSWORD = 'Sup3r-secret-pw!';
 const ID_TOKEN = 'eyJhbGciOiJSUzI1NiJ9.fake-id-token.fake-signature';
 const REFRESH_TOKEN = 'AMf-vBfake-refresh-token-value';
 const UID = 'firebase-uid-123';
+const GOOGLE_ID_TOKEN = 'eyJhbGciOiJSUzI1NiJ9.fake-google-id-token.fake-signature';
+const REDIRECT_URI = 'http://localhost:3000/api/v1/auth/google/callback';
+
+// Shape of a documented signInWithIdp success response (fields the API reads, plus extras).
+const idpBody = {
+  kind: 'identitytoolkit#VerifyAssertionResponse',
+  federatedId: 'https://accounts.google.com/1234567890',
+  providerId: 'google.com',
+  localId: UID,
+  email: EMAIL,
+  emailVerified: true,
+  displayName: 'Rocky Example',
+  idToken: ID_TOKEN,
+  refreshToken: REFRESH_TOKEN,
+  expiresIn: '3600',
+  isNewUser: true,
+};
 
 const signInBody = {
   kind: 'identitytoolkit#VerifyPasswordResponse',
@@ -63,7 +82,10 @@ function errorResponse(message: string, status = 400): Response {
 
 function createClient(): FirebaseAuthRestClient {
   return new FirebaseAuthRestClient(
-    new ConfigService<EnvironmentVariables, true>({ FIREBASE_WEB_API_KEY: API_KEY }),
+    new ConfigService<EnvironmentVariables, true>({
+      FIREBASE_WEB_API_KEY: API_KEY,
+      GOOGLE_OAUTH_REDIRECT_URI: REDIRECT_URI,
+    }),
   );
 }
 
@@ -181,6 +203,107 @@ describe('FirebaseAuthRestClient', () => {
       );
 
       expect(wrongPassword.message).toBe(unknownEmail.message);
+    });
+  });
+
+  describe('signInWithGoogleIdToken', () => {
+    it('posts the Google ID token as a google.com credential, with the key in a header', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(idpBody));
+
+      await client.signInWithGoogleIdToken(GOOGLE_ID_TOKEN);
+
+      expect(fetchMock.mock.calls[0][0]).toBe(SIGN_IN_WITH_IDP_URL);
+      const init = sentRequest();
+      expect(init.method).toBe('POST');
+      expect(init.headers).toEqual({
+        'content-type': 'application/json',
+        'x-goog-api-key': API_KEY,
+      });
+      const body: unknown = JSON.parse(sentBody());
+      expect(body).toEqual({
+        requestUri: REDIRECT_URI,
+        postBody: `id_token=${GOOGLE_ID_TOKEN}&providerId=google.com`,
+        returnSecureToken: true,
+      });
+    });
+
+    it('returns a normalised session', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(idpBody));
+
+      await expect(client.signInWithGoogleIdToken(GOOGLE_ID_TOKEN)).resolves.toEqual({
+        needConfirmation: false,
+        session: {
+          uid: UID,
+          idToken: ID_TOKEN,
+          refreshToken: REFRESH_TOKEN,
+          expiresInSeconds: 3600,
+        },
+      });
+    });
+
+    it('reports needConfirmation without a session, even if tokens were returned', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ ...idpBody, needConfirmation: true }));
+
+      await expect(client.signInWithGoogleIdToken(GOOGLE_ID_TOKEN)).resolves.toEqual({
+        needConfirmation: true,
+      });
+    });
+
+    it('reports needConfirmation when Firebase omits the tokens', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({ localId: UID, email: EMAIL, needConfirmation: true }),
+      );
+
+      await expect(client.signInWithGoogleIdToken(GOOGLE_ID_TOKEN)).resolves.toEqual({
+        needConfirmation: true,
+      });
+    });
+
+    it.each([
+      ['INVALID_IDP_RESPONSE : Invalid Idp Response', InvalidTokenError],
+      ['EMAIL_EXISTS', EmailAlreadyExistsError],
+      ['USER_DISABLED', UserDisabledError],
+      ['TOO_MANY_ATTEMPTS_TRY_LATER', TooManyAttemptsError],
+      ['OPERATION_NOT_ALLOWED', FirebaseUnavailableError],
+    ])('maps %s to %p', async (message, expected) => {
+      fetchMock.mockResolvedValue(errorResponse(message));
+
+      await expect(client.signInWithGoogleIdToken(GOOGLE_ID_TOKEN)).rejects.toBeInstanceOf(
+        expected,
+      );
+    });
+
+    it('logs a disabled Google provider by its code', async () => {
+      fetchMock.mockResolvedValue(errorResponse('OPERATION_NOT_ALLOWED'));
+
+      await rejectionOf(client.signInWithGoogleIdToken(GOOGLE_ID_TOKEN), FirebaseUnavailableError);
+
+      expect(errorLogSpy).toHaveBeenCalledWith(
+        'Firebase signInWithIdp failed with unexpected error code: OPERATION_NOT_ALLOWED',
+      );
+    });
+
+    it('rejects a success response without tokens', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ ...idpBody, idToken: undefined }));
+
+      await expect(client.signInWithGoogleIdToken(GOOGLE_ID_TOKEN)).rejects.toBeInstanceOf(
+        FirebaseUnavailableError,
+      );
+    });
+
+    it('never puts the Google ID token in errors or logs', async () => {
+      fetchMock.mockResolvedValueOnce(errorResponse(`SOMETHING_ODD : ${GOOGLE_ID_TOKEN}`));
+      fetchMock.mockRejectedValueOnce(new TypeError(`fetch failed ${GOOGLE_ID_TOKEN}`));
+
+      const errors = [
+        await rejectionOf(client.signInWithGoogleIdToken(GOOGLE_ID_TOKEN), FirebaseDomainError),
+        await rejectionOf(client.signInWithGoogleIdToken(GOOGLE_ID_TOKEN), FirebaseDomainError),
+      ];
+
+      expect(JSON.stringify(errorLogSpy.mock.calls)).not.toContain(GOOGLE_ID_TOKEN);
+      for (const error of errors) {
+        expect(error.message).not.toContain(GOOGLE_ID_TOKEN);
+      }
     });
   });
 

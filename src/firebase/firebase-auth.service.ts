@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { App } from 'firebase-admin/app';
-import { type Auth, type DecodedIdToken, getAuth } from 'firebase-admin/auth';
+import { type Auth, type DecodedIdToken, getAuth, type UserRecord } from 'firebase-admin/auth';
 import { type ErrorCodeMapping, readErrorCode, toDomainError } from './firebase-error.utils';
 import { FIREBASE_APP } from './firebase.constants';
 import {
@@ -125,9 +125,27 @@ export class FirebaseAuthService {
    * @throws {FirebaseUnavailableError} On any failure other than not-found.
    */
   async findUserByEmail(email: string): Promise<CreatedFirebaseUser | null> {
+    const user = await this.getUserByEmailOrNull(email);
+    return user ? { uid: user.uid } : null;
+  }
+
+  /**
+   * Lists the sign-in methods of the Firebase user with this email, e.g. `password` or
+   * `google.com`. Google sign-in uses it to leave password accounts untouched (ADR-015):
+   * Firebase may otherwise replace an unverified password with the Google provider.
+   *
+   * @param email - The email address from the verified Google ID token.
+   * @returns The provider IDs, or `null` if no user has this email.
+   * @throws {FirebaseUnavailableError} On any failure other than not-found.
+   */
+  async findSignInProviders(email: string): Promise<string[] | null> {
+    const user = await this.getUserByEmailOrNull(email);
+    return user ? user.providerData.map((provider) => provider.providerId) : null;
+  }
+
+  private async getUserByEmailOrNull(email: string): Promise<UserRecord | null> {
     try {
-      const user = await this.auth.getUserByEmail(email);
-      return { uid: user.uid };
+      return await this.auth.getUserByEmail(email);
     } catch (error: unknown) {
       const code = readErrorCode(error);
       if (code === 'auth/user-not-found') {

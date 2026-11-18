@@ -135,6 +135,42 @@ describe('FirebaseAuthService', () => {
     });
   });
 
+  describe('findSignInProviders', () => {
+    const email = 'alice@example.com';
+
+    it('returns the provider IDs of the user with this email', async () => {
+      mockAuth.getUserByEmail.mockResolvedValue({
+        uid: UID,
+        email,
+        providerData: [{ providerId: 'password' }, { providerId: 'google.com' }],
+      });
+
+      await expect(service.findSignInProviders(email)).resolves.toEqual(['password', 'google.com']);
+      expect(mockAuth.getUserByEmail).toHaveBeenCalledWith(email);
+    });
+
+    it('returns an empty list for a user without providers', async () => {
+      mockAuth.getUserByEmail.mockResolvedValue({ uid: UID, email, providerData: [] });
+
+      await expect(service.findSignInProviders(email)).resolves.toEqual([]);
+    });
+
+    it('returns null when no user has this email', async () => {
+      mockAuth.getUserByEmail.mockRejectedValue(firebaseError('auth/user-not-found'));
+
+      await expect(service.findSignInProviders(email)).resolves.toBeNull();
+      expect(errorLogSpy).not.toHaveBeenCalled();
+    });
+
+    it('maps any other failure to FirebaseUnavailableError', async () => {
+      mockAuth.getUserByEmail.mockRejectedValue(firebaseError('auth/internal-error'));
+
+      await expect(service.findSignInProviders(email)).rejects.toBeInstanceOf(
+        FirebaseUnavailableError,
+      );
+    });
+  });
+
   describe('verifyIdToken', () => {
     it('always checks revocation and returns the decoded token', async () => {
       const decoded = { uid: UID, email: 'rocky@example.com' };

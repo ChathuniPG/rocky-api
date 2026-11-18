@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import type { EnvironmentVariables } from '../config/env.validation';
 import { type ErrorCodeMapping, toDomainError } from './firebase-error.utils';
 import {
+  EmailAlreadyExistsError,
   FirebaseUnavailableError,
   InvalidCredentialsError,
   InvalidTokenError,
@@ -22,6 +23,10 @@ export const FIREBASE_REST_TIMEOUT_MS = 10_000;
 export const SIGN_IN_WITH_PASSWORD_URL =
   'https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword';
 
+/** Identity Toolkit: signs in with a credential from an identity provider (ADR-015). */
+export const SIGN_IN_WITH_IDP_URL =
+  'https://identitytoolkit.googleapis.com/v1/accounts:signInWithIdp';
+
 /** Secure Token API: exchanges a refresh token for a new ID token (design §3.6). */
 export const REFRESH_TOKEN_URL = 'https://securetoken.googleapis.com/v1/token';
 
@@ -37,6 +42,14 @@ export interface FirebaseSession {
   expiresInSeconds: number;
 }
 
+/**
+ * Result of a Google sign-in through signInWithIdp. `needConfirmation` means another
+ * Firebase account already uses the email and Firebase wants the user to sign in to it
+ * first (ADR-015); no session is returned then, even if Firebase sent tokens.
+ */
+export type GoogleIdpSignInResult =
+  { needConfirmation: true } | { needConfirmation: false; session: FirebaseSession };
+
 const SIGN_IN_ERRORS: ErrorCodeMapping = {
   // Design §3.4: wrong password, unknown email and malformed email all become one error,
   // so responses never reveal which emails are registered. INVALID_LOGIN_CREDENTIALS is
@@ -48,6 +61,18 @@ const SIGN_IN_ERRORS: ErrorCodeMapping = {
   INVALID_EMAIL: () => new InvalidCredentialsError(),
   USER_DISABLED: () => new UserDisabledError(),
   TOO_MANY_ATTEMPTS_TRY_LATER: () => new TooManyAttemptsError(),
+};
+
+const SIGN_IN_WITH_IDP_ERRORS: ErrorCodeMapping = {
+  // The Google ID token is malformed, expired or not issued for this project's client.
+  INVALID_IDP_RESPONSE: () => new InvalidTokenError(),
+  // Not expected without account linking, but if Firebase reports an email clash it is
+  // handled like needConfirmation rather than as an outage.
+  EMAIL_EXISTS: () => new EmailAlreadyExistsError(),
+  USER_DISABLED: () => new UserDisabledError(),
+  TOO_MANY_ATTEMPTS_TRY_LATER: () => new TooManyAttemptsError(),
+  // OPERATION_NOT_ALLOWED (Google provider disabled) is deliberately unmapped: it is a
+  // configuration error, logged and reported as FirebaseUnavailableError.
 };
 
 const REFRESH_ERRORS: ErrorCodeMapping = {
@@ -67,8 +92,9 @@ const REFRESH_ERRORS: ErrorCodeMapping = {
 const ERROR_CODE_PATTERN = /^[A-Z][A-Z0-9_]*$/;
 
 /**
- * Client for the Firebase Auth REST API (ADR-002). The Admin SDK cannot check passwords,
- * so sign-in and token refresh go through these endpoints, using Node's built-in fetch.
+ * Client for the Firebase Auth REST API (ADR-002). The Admin SDK cannot check passwords
+ * or sign users in, so password sign-in, Google sign-in (ADR-015) and token refresh go
+ * through these endpoints, using Node's built-in fetch.
  *
  * Every failure is translated into a `FirebaseDomainError`; this client never throws
  * HTTP exceptions. Tokens, passwords and the API key are never logged.
@@ -77,9 +103,11 @@ const ERROR_CODE_PATTERN = /^[A-Z][A-Z0-9_]*$/;
 export class FirebaseAuthRestClient {
   private readonly logger = new Logger(FirebaseAuthRestClient.name);
   private readonly apiKey: string;
+  private readonly googleRedirectUri: string;
 
   constructor(config: ConfigService<EnvironmentVariables, true>) {
     this.apiKey = config.get('FIREBASE_WEB_API_KEY', { infer: true });
+    this.googleRedirectUri = config.get('GOOGLE_OAUTH_REDIRECT_URI', { infer: true });
   }
 
   /**
@@ -110,6 +138,55 @@ export class FirebaseAuthRestClient {
       refreshToken: 'refreshToken',
       expiresIn: 'expiresIn',
     });
+  }
+
+  /**
+   * Signs a user in with a Google ID token (ADR-015). Firebase verifies the token and
+   * creates the Firebase user on the first sign-in. The token comes from Google's token
+   * endpoint, called by this API, never from the browser.
+   *
+   * @param googleIdToken - The `id_token` returned by Google's token endpoint.
+   * @returns The session, or `needConfirmation` if another account uses the email.
+   * @throws {InvalidTokenError} If Firebase rejects the Google ID token.
+   * @throws {EmailAlreadyExistsError} If Firebase reports that the email is taken.
+   * @throws {UserDisabledError} If the account is disabled.
+   * @throws {TooManyAttemptsError} If Firebase is throttling requests.
+   * @throws {FirebaseUnavailableError} On a timeout, network error, unexpected error
+   *   code (e.g. the Google provider is disabled) or malformed response.
+   */
+  async signInWithGoogleIdToken(googleIdToken: string): Promise<GoogleIdpSignInResult> {
+    const payload = await this.post({
+      operation: 'signInWithIdp',
+      url: SIGN_IN_WITH_IDP_URL,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        // Required by the API; for a credential obtained by the server it only has to be
+        // a valid URL, so the registered callback URL is used.
+        requestUri: this.googleRedirectUri,
+        postBody: new URLSearchParams({
+          id_token: googleIdToken,
+          providerId: 'google.com',
+        }).toString(),
+        returnSecureToken: true,
+      }),
+      errors: SIGN_IN_WITH_IDP_ERRORS,
+    });
+
+    // Checked before the tokens: with needConfirmation Firebase may omit them, and they
+    // must not be used either way.
+    if (isRecord(payload) && payload.needConfirmation === true) {
+      return { needConfirmation: true };
+    }
+
+    return {
+      needConfirmation: false,
+      session: toSession(payload, {
+        uid: 'localId',
+        idToken: 'idToken',
+        refreshToken: 'refreshToken',
+        expiresIn: 'expiresIn',
+      }),
+    };
   }
 
   /**
