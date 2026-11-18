@@ -132,7 +132,9 @@ export class AuthController {
   @ApiErrorResponses(
     HttpStatus.BAD_REQUEST,
     { status: HttpStatus.UNAUTHORIZED, description: 'Invalid email or password.' },
-    HttpStatus.FORBIDDEN,
+    // Not the shared default: login is public, so the guard's PROFILE_INCOMPLETE rule never
+    // applies, and a missing users row answers 401 (design §3.5).
+    { status: HttpStatus.FORBIDDEN, description: 'The account is disabled.' },
     {
       status: HttpStatus.TOO_MANY_REQUESTS,
       description: 'Rate limit exceeded, or Firebase is blocking further attempts.',
