@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   HttpStatus,
   Logger,
   NotFoundException,
@@ -90,6 +91,37 @@ describe('AllExceptionsFilter', () => {
 
     expect(response.body).toMatchObject({ path: '/api/v1/users/search' });
   });
+
+  it('passes a machine-readable code through (PROFILE_INCOMPLETE)', () => {
+    const exception = new ForbiddenException({
+      message: 'Profile setup required',
+      code: 'PROFILE_INCOMPLETE',
+    });
+
+    const response = runFilter(exception);
+
+    expect(response.statusCode).toBe(403);
+    expect(response.body).toMatchObject({
+      error: 'Forbidden',
+      message: 'Profile setup required',
+      code: 'PROFILE_INCOMPLETE',
+    });
+  });
+
+  it('omits code when the exception sets none', () => {
+    const response = runFilter(new NotFoundException('Post not found'));
+
+    expect(response.body).not.toHaveProperty('code');
+  });
+
+  it.each([`free text ${SECRET}`, 42, 'lower_case'])(
+    'drops a code that is not a code: %p',
+    (code) => {
+      const response = runFilter(new ForbiddenException({ message: 'Nope', code }));
+
+      expect(response.body).not.toHaveProperty('code');
+    },
+  );
 
   it('keeps the message list produced by ValidationPipe', () => {
     const exception = new BadRequestException(['email must be an email', 'password is too short']);

@@ -18,6 +18,11 @@ export interface ErrorResponseBody {
   error: string;
   /** Safe, client-facing message. Validation errors return one message per failed rule. */
   message: string | string[];
+  /**
+   * Optional machine-readable reason for clients that must react to one specific error,
+   * e.g. "PROFILE_INCOMPLETE" (issue #42). Omitted when the exception sets none.
+   */
+  code?: string;
   path: string;
   timestamp: string;
 }
@@ -26,10 +31,14 @@ export interface ErrorResponseBody {
 export interface MappedError {
   status: number;
   message: string | string[];
+  code?: string;
 }
 
 const INTERNAL_ERROR_MESSAGE = 'Internal server error';
 const SERVICE_UNAVAILABLE_MESSAGE = 'Service temporarily unavailable';
+
+/** Shape of an error `code`: upper-case words, e.g. PROFILE_INCOMPLETE. */
+const ERROR_CODE_PATTERN = /^[A-Z][A-Z0-9_]*$/;
 
 /**
  * Global exception filter: turns every exception into the standard JSON error body
@@ -56,11 +65,13 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const request = http.getRequest<Request>();
     const response = http.getResponse<Response>();
 
-    const { status, message } = this.mapException(exception, request);
+    const { status, message, code } = this.mapException(exception, request);
     const body: ErrorResponseBody = {
       statusCode: status,
       error: STATUS_CODES[status] ?? 'Error',
       message,
+      // Only present when set, so every other error body keeps its existing shape.
+      ...(code === undefined ? {} : { code }),
       // originalUrl keeps the global prefix (/api/v1/...); the query string is dropped
       // because it can carry user input that has no place in an error body.
       path: request.originalUrl.split('?')[0],
@@ -72,7 +83,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
   private mapException(exception: unknown, request: Request): MappedError {
     if (exception instanceof HttpException) {
-      return { status: exception.getStatus(), message: readHttpExceptionMessage(exception) };
+      return {
+        status: exception.getStatus(),
+        message: readHttpExceptionMessage(exception),
+        code: readHttpExceptionCode(exception),
+      };
     }
 
     if (exception instanceof FirebaseDomainError) {
@@ -216,4 +231,18 @@ function readHttpExceptionMessage(exception: HttpException): string | string[] {
     }
   }
   return exception.message;
+}
+
+/**
+ * Reads the optional `code` of an `HttpException` thrown with an object body, e.g.
+ * `new ForbiddenException({ message, code: 'PROFILE_INCOMPLETE' })`. Only values shaped
+ * like a code are passed on, so free text can never reach the client through this field.
+ */
+function readHttpExceptionCode(exception: HttpException): string | undefined {
+  const response = exception.getResponse();
+  if (typeof response !== 'object' || response === null || !('code' in response)) {
+    return undefined;
+  }
+  const { code } = response;
+  return typeof code === 'string' && ERROR_CODE_PATTERN.test(code) ? code : undefined;
 }
