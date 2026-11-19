@@ -18,6 +18,21 @@ export const REFRESH_COOKIE_PATH = `/${API_PREFIX}/auth`;
 export const REFRESH_COOKIE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
+ * Short-lived cookie holding the state, PKCE verifier and returnTo of one Google sign-in
+ * attempt (issue #42, ADR-015), between GET /auth/google and its callback.
+ */
+export const OAUTH_COOKIE = 'rocky_oauth';
+
+/** Path of the Google sign-in routes; the OAuth cookie is sent to them only. */
+export const OAUTH_COOKIE_PATH = `/${API_PREFIX}/auth/google`;
+
+/** Full path of the Google OAuth callback; GOOGLE_OAUTH_REDIRECT_URI must use it. */
+export const GOOGLE_OAUTH_CALLBACK_PATH = `${OAUTH_COOKIE_PATH}/callback`;
+
+/** Lifetime of the OAuth cookie: 10 minutes, ample time for Google's consent screen. */
+export const OAUTH_COOKIE_MAX_AGE_MS = 10 * 60 * 1000;
+
+/**
  * Reads one cookie parsed by cookie-parser.
  *
  * @param request - The Express request.

@@ -11,6 +11,7 @@
 | 0.5         | 08 Nov 2026 | Chathuni Gunasena | Added FR-MSG-06 (unread messages badge in navigation).      |
 | 0.6         | 08 Nov 2026 | Chathuni Gunasena | FR-FEED-10 refined: previous/next feed controls replace the scrollbar.      |
 | 0.7         | 09 Nov 2026 | Chathuni Gunasena | NFR-MNT-01 updated: names each repository’s linter (oxlint for rocky-api, ESLint for rocky-web).      |
+| 0.8         | 18 Nov 2026 | Chathuni Gunasena | Added FR-AUTH-09 to FR-AUTH-11 (Google sign-in, username step, email already registered with a password); A-04, NFR-SEC-01, user classes and Out of Scope updated (issue #42).      |
 
 ## 1. Introduction
 
@@ -40,6 +41,8 @@ The system consists of a Next.js web application (frontend) and a NestJS REST AP
 
 - **Authenticated User:** can use all features and can modify only their own content.
 
+- **Google user without a profile:** signed in with Google but has not chosen a username yet (FR-AUTH-10); can only complete the profile setup or log out.
+
 ### 2.2 Constraints
 
 - **C-01:** Frontend must use Next.js (App Router) with TypeScript, Tailwind CSS, and a component library (shadcn/ui).
@@ -64,7 +67,7 @@ The system consists of a Next.js web application (frontend) and a NestJS REST AP
 
 - **A-03:** Video playback uses the browser’s native `<video>` element with custom controls; no transcoding or streaming infrastructure.
 
-- **A-04:** Users authenticate with email and password only.
+- **A-04:** Users authenticate with email and password, or with a Google account (FR-AUTH-09).
 
 ## 3. Functional Requirements
 
@@ -80,6 +83,9 @@ The system consists of a Next.js web application (frontend) and a NestJS REST AP
 | FR-AUTH-06 | A logged-in user can log out, which clears the session token on the client and revokes it on the server.                                                                                                    | Must         |
 | FR-AUTH-07 | Unauthenticated users who visit protected pages are redirected to Login.                                                                                                                                    | Must         |
 | FR-AUTH-08 | Expired ID tokens are refreshed automatically without forcing re-login.                                                                                                                                     | Should       |
+| FR-AUTH-09 | A guest can sign in with a Google account (“Continue with Google”) from Login and Sign Up, and returns to the page they came from. Cancelling at Google or any failure returns to Login with a clear message. | Should       |
+| FR-AUTH-10 | A first-time Google user chooses a username and display name before using the app. A suggested username is prefilled that follows FR-AUTH-02, is not reserved and is not taken. A user who leaves this step finishes it after the next Google sign-in. | Should       |
+| FR-AUTH-11 | An email that is already registered with a password cannot sign in with Google; the user is told to log in with their password, and that password keeps working.                                          | Should       |
 
 ### 3.2 Home Feed
 
@@ -173,7 +179,7 @@ The system consists of a Next.js web application (frontend) and a NestJS REST AP
 
 ### 4.1 Security
 
-- **NFR-SEC-01:** All endpoints except sign-up, login, and health check require a valid Firebase ID token.
+- **NFR-SEC-01:** All endpoints require a valid Firebase ID token, except sign-up, login, token refresh, logout, the Google sign-in start and callback, and the health check. Endpoints also require a completed profile, except the profile setup endpoints (FR-AUTH-10).
 
 - **NFR-SEC-02:** Users can modify or delete only resources they own; the server enforces this regardless of client behavior.
 
@@ -237,7 +243,11 @@ The system consists of a Next.js web application (frontend) and a NestJS REST AP
 
 - Real-time messaging via WebSockets (polling is used instead).
 
-- Password reset, email verification, and social login.
+- Password reset and email verification.
+
+- Social login other than Google (e.g. Apple, Facebook), and linking a Google sign-in to an existing email/password account.
+
+- Importing the Google profile photo, and changing the username after sign-up.
 
 - Native mobile apps.
 

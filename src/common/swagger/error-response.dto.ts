@@ -20,6 +20,15 @@ export class ErrorResponseDto implements ErrorResponseBody {
   })
   message: string | string[];
 
+  @ApiProperty({
+    required: false,
+    example: 'PROFILE_INCOMPLETE',
+    description:
+      'Machine-readable reason, only on errors a client must tell apart. PROFILE_INCOMPLETE ' +
+      '(403): signed in, but the profile is not set up yet.',
+  })
+  code?: string;
+
   @ApiProperty({ example: '/api/v1/auth/signup', description: 'Request path without query.' })
   path: string;
 

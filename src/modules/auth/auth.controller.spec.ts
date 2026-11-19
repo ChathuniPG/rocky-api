@@ -1,12 +1,14 @@
 import { type CanActivate, type ExecutionContext, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerException } from '@nestjs/throttler';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { cookieHeader, findSetCookie, setCookieValue } from '../../../test/helpers/cookies';
 import { buildUser } from '../../../test/fixtures/user.fixture';
 import { configureApp } from '../../app.setup';
+import type { VerifiedIdentity } from '../../common/auth/authenticated-request';
 import type { FirebaseSession } from '../../firebase/firebase-auth-rest.client';
 import { FirebaseUnavailableError, TooManyAttemptsError } from '../../firebase/firebase.errors';
 import type { User } from '../../generated/prisma/client';
@@ -14,6 +16,7 @@ import { AuthCookieService } from './auth-cookie.service';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { UserResponseDto } from './dto/user-response.dto';
+import { GoogleAuthService } from './google/google-auth.service';
 
 // HTTP-level tests of the controller with AuthService mocked: real routing, ValidationPipe,
 // exception filter and cookie headers, but no database and no Firebase.
@@ -32,13 +35,28 @@ const validSignup = {
   displayName: '  Alice  ',
 };
 
-/** Stands in for FirebaseAuthGuard: lets every request through as `user`. */
+const identity: VerifiedIdentity = { uid: user.firebaseUid, email: user.email, name: 'Alice' };
+
+/** When set, FakeAuthGuard throws it, e.g. to simulate the throttler's 429. */
+let guardError: Error | undefined;
+
+/** Stands in for the global guards: lets every request through as `user`. */
 class FakeAuthGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
-    context.switchToHttp().getRequest<{ user?: User }>().user = user;
+    if (guardError) {
+      throw guardError;
+    }
+    const httpRequest = context
+      .switchToHttp()
+      .getRequest<{ user?: User; identity?: VerifiedIdentity }>();
+    httpRequest.identity = identity;
+    httpRequest.user = user;
     return true;
   }
 }
+
+const GOOGLE_AUTHORIZATION_URL = 'https://accounts.google.com/o/oauth2/v2/auth?client_id=x';
+const OAUTH_COOKIE_VALUE = '{"state":"s","codeVerifier":"v","returnTo":"/settings"}';
 
 describe('AuthController (HTTP)', () => {
   const authService = {
@@ -46,16 +64,21 @@ describe('AuthController (HTTP)', () => {
     login: jest.fn(),
     refresh: jest.fn(),
     logout: jest.fn(),
+    getProfileSetup: jest.fn(),
+    completeProfileSetup: jest.fn(),
   };
+  const googleAuth = { startSignIn: jest.fn(), completeSignIn: jest.fn() };
   let app: NestExpressApplication;
 
   beforeEach(async () => {
     jest.resetAllMocks();
+    guardError = undefined;
     const moduleRef = await Test.createTestingModule({
       controllers: [AuthController],
       providers: [
         AuthCookieService,
         { provide: AuthService, useValue: authService },
+        { provide: GoogleAuthService, useValue: googleAuth },
         // COOKIE_SECURE=true, so the tests check the production flags.
         { provide: ConfigService, useValue: { get: () => true } },
         { provide: APP_GUARD, useClass: FakeAuthGuard },
@@ -250,6 +273,199 @@ describe('AuthController (HTTP)', () => {
         language: 'en',
         createdAt: user.createdAt.toISOString(),
       });
+    });
+  });
+
+  describe('GET /auth/google', () => {
+    beforeEach(() => {
+      googleAuth.startSignIn.mockReturnValue({
+        authorizationUrl: GOOGLE_AUTHORIZATION_URL,
+        oauthCookie: OAUTH_COOKIE_VALUE,
+      });
+    });
+
+    it('sets rocky_oauth and redirects to Google with 302', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/api/v1/auth/google?returnTo=%2Fsettings')
+        .expect(302);
+
+      expect(response.headers.location).toBe(GOOGLE_AUTHORIZATION_URL);
+      expect(googleAuth.startSignIn).toHaveBeenCalledWith('/settings');
+      const cookie = findSetCookie(response, 'rocky_oauth') ?? '';
+      expect(setCookieValue(response, 'rocky_oauth')).toBe(OAUTH_COOKIE_VALUE);
+      expect(cookie).toContain('Path=/api/v1/auth/google;');
+      expect(cookie).toContain('Max-Age=600;');
+      expect(cookie).toContain('HttpOnly');
+      expect(cookie).toContain('Secure');
+      expect(cookie).toContain('SameSite=Lax');
+    });
+
+    it('works without returnTo', async () => {
+      await request(app.getHttpServer()).get('/api/v1/auth/google').expect(302);
+
+      expect(googleAuth.startSignIn).toHaveBeenCalledWith(undefined);
+    });
+
+    it('rejects an over-long returnTo with 400', async () => {
+      await request(app.getHttpServer())
+        .get(`/api/v1/auth/google?returnTo=/${'x'.repeat(2048)}`)
+        .expect(400);
+
+      expect(googleAuth.startSignIn).not.toHaveBeenCalled();
+    });
+
+    it('rejects unknown query parameters with 400, like every other endpoint', async () => {
+      await request(app.getHttpServer()).get('/api/v1/auth/google?foo=1').expect(400);
+
+      expect(googleAuth.startSignIn).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('GET /auth/google/callback', () => {
+    const callbackUrl = '/api/v1/auth/google/callback?code=the-code&state=the-state';
+
+    it('sets the session cookies, clears rocky_oauth and redirects on success', async () => {
+      googleAuth.completeSignIn.mockResolvedValue({
+        redirectPath: '/welcome?returnTo=%2Fsettings',
+        session,
+      });
+
+      const response = await request(app.getHttpServer())
+        .get(callbackUrl)
+        .set('Cookie', cookieHeader({ rocky_oauth: OAUTH_COOKIE_VALUE }))
+        .expect(302);
+
+      expect(response.headers.location).toBe('/welcome?returnTo=%2Fsettings');
+      expect(googleAuth.completeSignIn).toHaveBeenCalledWith(
+        { code: 'the-code', state: 'the-state', error: undefined },
+        OAUTH_COOKIE_VALUE,
+      );
+      expect(setCookieValue(response, 'rocky_id')).toBe(session.idToken);
+      expect(setCookieValue(response, 'rocky_refresh')).toBe(session.refreshToken);
+      expect(findSetCookie(response, 'rocky_refresh')).toContain('Path=/api/v1/auth;');
+      expect(findSetCookie(response, 'rocky_oauth')).toMatch(
+        /^rocky_oauth=;.*Path=\/api\/v1\/auth\/google;.*Expires=Thu, 01 Jan 1970/,
+      );
+    });
+
+    it('ignores the other parameters Google adds instead of rejecting them', async () => {
+      googleAuth.completeSignIn.mockResolvedValue({ redirectPath: '/', session });
+
+      await request(app.getHttpServer())
+        .get(
+          `${callbackUrl}&scope=email%20profile%20openid&authuser=0&prompt=consent&hd=example.com&iss=https%3A%2F%2Faccounts.google.com`,
+        )
+        .expect(302);
+
+      expect(googleAuth.completeSignIn).toHaveBeenCalledWith(
+        { code: 'the-code', state: 'the-state', error: undefined },
+        undefined,
+      );
+    });
+
+    it('passes a repeated parameter on as an array for the service to reject', async () => {
+      googleAuth.completeSignIn.mockResolvedValue({ redirectPath: '/login?error=google' });
+
+      await request(app.getHttpServer()).get(`${callbackUrl}&code=second`).expect(302);
+
+      expect(googleAuth.completeSignIn).toHaveBeenCalledWith(
+        { code: ['the-code', 'second'], state: 'the-state', error: undefined },
+        undefined,
+      );
+    });
+
+    it('passes error=access_denied to the service and sets no session on failure', async () => {
+      googleAuth.completeSignIn.mockResolvedValue({ redirectPath: '/login?error=google' });
+
+      const response = await request(app.getHttpServer())
+        .get('/api/v1/auth/google/callback?error=access_denied&state=the-state')
+        .expect(302);
+
+      expect(response.headers.location).toBe('/login?error=google');
+      expect(googleAuth.completeSignIn).toHaveBeenCalledWith(
+        { code: undefined, state: 'the-state', error: 'access_denied' },
+        undefined,
+      );
+      expect(findSetCookie(response, 'rocky_id')).toBeUndefined();
+      expect(findSetCookie(response, 'rocky_refresh')).toBeUndefined();
+      expect(findSetCookie(response, 'rocky_oauth')).toMatch(/^rocky_oauth=;/);
+    });
+
+    it('redirects instead of answering JSON when the service throws', async () => {
+      googleAuth.completeSignIn.mockRejectedValue(new FirebaseUnavailableError());
+
+      const response = await request(app.getHttpServer()).get(callbackUrl).expect(302);
+
+      expect(response.headers.location).toBe('/login?error=google');
+      expect(response.headers['content-type'] ?? '').not.toContain('application/json');
+      expect(findSetCookie(response, 'rocky_oauth')).toMatch(/^rocky_oauth=;/);
+      expect(findSetCookie(response, 'rocky_id')).toBeUndefined();
+    });
+
+    it('redirects instead of answering JSON when rate limited', async () => {
+      guardError = new ThrottlerException();
+
+      const response = await request(app.getHttpServer()).get(callbackUrl).expect(302);
+
+      expect(response.headers.location).toBe('/login?error=google');
+      expect(googleAuth.completeSignIn).not.toHaveBeenCalled();
+    });
+
+    it('keeps the JSON 429 on the other auth routes', async () => {
+      guardError = new ThrottlerException();
+
+      const response = await request(app.getHttpServer()).get('/api/v1/auth/google').expect(429);
+
+      expect(response.body).toMatchObject({ statusCode: 429 });
+    });
+  });
+
+  describe('GET /auth/profile-setup', () => {
+    it('returns the suggestion for the verified identity', async () => {
+      const suggestion = {
+        email: 'alice@example.com',
+        displayName: 'Alice',
+        suggestedUsername: 'alice',
+      };
+      authService.getProfileSetup.mockResolvedValue(suggestion);
+
+      const response = await request(app.getHttpServer())
+        .get('/api/v1/auth/profile-setup')
+        .expect(200);
+
+      expect(response.body).toEqual(suggestion);
+      expect(authService.getProfileSetup).toHaveBeenCalledWith(identity);
+    });
+  });
+
+  describe('POST /auth/profile-setup', () => {
+    it('normalises the body and returns 201 with the new profile', async () => {
+      authService.completeProfileSetup.mockResolvedValue(UserResponseDto.fromUser(user));
+
+      const response = await request(app.getHttpServer())
+        .post('/api/v1/auth/profile-setup')
+        .send({ username: ' Alice ', displayName: '  Alice  ' })
+        .expect(201);
+
+      expect(authService.completeProfileSetup).toHaveBeenCalledWith(identity, {
+        username: 'alice',
+        displayName: 'Alice',
+      });
+      expect(response.body).toMatchObject({ id: user.id, username: 'alice' });
+      expect(findSetCookie(response, 'rocky_id')).toBeUndefined();
+    });
+
+    it.each([
+      ['a reserved username', { username: 'welcome', displayName: 'Alice' }],
+      ['a missing display name', { username: 'alice' }],
+      [
+        'an email, which only the token may set',
+        { username: 'alice', displayName: 'A', email: 'x@y.z' },
+      ],
+    ])('rejects %s with 400', async (_label, body) => {
+      await request(app.getHttpServer()).post('/api/v1/auth/profile-setup').send(body).expect(400);
+
+      expect(authService.completeProfileSetup).not.toHaveBeenCalled();
     });
   });
 });

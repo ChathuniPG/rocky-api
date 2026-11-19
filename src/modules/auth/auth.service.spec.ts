@@ -1,4 +1,9 @@
-import { ConflictException, Logger, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Logger,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { buildUser } from '../../../test/fixtures/user.fixture';
 import {
@@ -19,8 +24,9 @@ import {
   WeakPasswordError,
 } from '../../firebase/firebase.errors';
 import { Prisma } from '../../generated/prisma/client';
+import type { VerifiedIdentity } from '../../common/auth/authenticated-request';
 import { PrismaService } from '../../prisma/prisma.service';
-import { AuthService } from './auth.service';
+import { AuthService, PROFILE_ALREADY_EXISTS, PROFILE_EMAIL_REQUIRED } from './auth.service';
 import type { SignupDto } from './dto/signup.dto';
 
 const FIREBASE_UID = 'firebase-uid-123';
@@ -51,7 +57,7 @@ function uniqueViolation(): Prisma.PrismaClientKnownRequestError {
 }
 
 // Stubbed dependencies: unit tests never touch PostgreSQL or Firebase.
-const prisma = { user: { findUnique: jest.fn(), create: jest.fn() } };
+const prisma = { user: { findUnique: jest.fn(), create: jest.fn(), findMany: jest.fn() } };
 const firebaseAuth = {
   createUser: jest.fn(),
   deleteUser: jest.fn(),
@@ -66,6 +72,25 @@ function mockSuccessfulSignup(): void {
   firebaseAuth.createUser.mockResolvedValue({ uid: FIREBASE_UID });
   prisma.user.create.mockResolvedValue(user);
   firebaseRest.signInWithPassword.mockResolvedValue(session);
+}
+
+/** Answers findUnique by the queried key: the uid's own row, or a username's row. */
+function mockRows({ profile = false, username = false } = {}): void {
+  prisma.user.findUnique.mockImplementation(
+    ({ where }: { where: { firebaseUid?: string; username?: string } }) =>
+      Promise.resolve(
+        (where.firebaseUid === undefined ? username : profile) ? { id: 'row' } : null,
+      ),
+  );
+}
+
+/** findMany answers that the usernames matching `isTaken` exist. */
+function mockTaken(isTaken: (name: string) => boolean = () => false): void {
+  prisma.user.findMany.mockImplementation(({ where }: { where: { username: { in: string[] } } }) =>
+    Promise.resolve(
+      where.username.in.filter((name) => isTaken(name)).map((name) => ({ username: name })),
+    ),
+  );
 }
 
 describe('AuthService', () => {
@@ -313,6 +338,167 @@ describe('AuthService', () => {
 
       await expect(service.logout(ID_TOKEN, undefined)).resolves.toBeUndefined();
       expect(warnLog).toHaveBeenCalledWith(expect.stringContaining('Could not revoke'));
+    });
+  });
+
+  describe('profile setup', () => {
+    const identity: VerifiedIdentity = {
+      uid: FIREBASE_UID,
+      email: 'Alice.Smith@Gmail.com',
+      name: 'Alice Smith',
+    };
+    const profileDto = { username: 'alice_s', displayName: 'Alice S.' };
+
+    describe('getProfileSetup', () => {
+      it('suggests the email local part with one query for all candidates', async () => {
+        mockRows();
+        mockTaken();
+
+        await expect(service.getProfileSetup(identity)).resolves.toEqual({
+          email: 'alice.smith@gmail.com',
+          displayName: 'Alice Smith',
+          suggestedUsername: 'alice.smith',
+        });
+        expect(prisma.user.findMany).toHaveBeenCalledTimes(1);
+        expect(prisma.user.findMany).toHaveBeenCalledWith({
+          where: { username: { in: expect.arrayContaining(['alice.smith']) } },
+          select: { username: true },
+        });
+      });
+
+      it('adds a numeric suffix when the base is taken', async () => {
+        mockRows();
+        mockTaken((name) => name === 'alice.smith');
+
+        const { suggestedUsername } = await service.getProfileSetup(identity);
+
+        expect(suggestedUsername).toMatch(/^alice\.smith\d{4}$/);
+      });
+
+      it('falls back to a random user name when every other candidate is taken', async () => {
+        mockRows();
+        mockTaken((name) => name.startsWith('alice'));
+
+        const { suggestedUsername } = await service.getProfileSetup(identity);
+
+        expect(suggestedUsername).toMatch(/^user[0-9a-f]{8}$/);
+      });
+
+      it('uses the email local part when the token has no name', async () => {
+        mockRows();
+        mockTaken();
+
+        const result = await service.getProfileSetup({ ...identity, name: '  ' });
+
+        expect(result.displayName).toBe('alice.smith');
+      });
+
+      it('cuts a long name to the display name limit without splitting an emoji', async () => {
+        mockRows();
+        mockTaken();
+        const name = `${'a'.repeat(49)}\u{1F600}\u{1F600}`;
+
+        const { displayName } = await service.getProfileSetup({ ...identity, name });
+
+        expect(displayName).toBe(`${'a'.repeat(49)}\u{1F600}`);
+        expect(Array.from(displayName)).toHaveLength(50);
+      });
+
+      it('rejects a user who already has a profile', async () => {
+        mockRows({ profile: true });
+
+        await expect(service.getProfileSetup(identity)).rejects.toThrow(
+          new ConflictException(PROFILE_ALREADY_EXISTS),
+        );
+        expect(prisma.user.findMany).not.toHaveBeenCalled();
+      });
+
+      it('rejects a token without an email', async () => {
+        await expect(service.getProfileSetup({ ...identity, email: undefined })).rejects.toThrow(
+          new BadRequestException(PROFILE_EMAIL_REQUIRED),
+        );
+      });
+    });
+
+    describe('completeProfileSetup', () => {
+      it('inserts the row with the email from the token, lowercased', async () => {
+        mockRows();
+        prisma.user.create.mockResolvedValue(user);
+
+        const result = await service.completeProfileSetup(identity, profileDto);
+
+        expect(prisma.user.create).toHaveBeenCalledWith({
+          data: {
+            firebaseUid: FIREBASE_UID,
+            email: 'alice.smith@gmail.com',
+            username: 'alice_s',
+            displayName: 'Alice S.',
+          },
+        });
+        expect(result).toMatchObject({ id: user.id });
+        expect(result).not.toHaveProperty('firebaseUid');
+      });
+
+      it('rejects a user who already has a profile', async () => {
+        mockRows({ profile: true });
+
+        await expect(service.completeProfileSetup(identity, profileDto)).rejects.toThrow(
+          new ConflictException(PROFILE_ALREADY_EXISTS),
+        );
+        expect(prisma.user.create).not.toHaveBeenCalled();
+      });
+
+      it('rejects a taken username', async () => {
+        mockRows({ username: true });
+
+        await expect(service.completeProfileSetup(identity, profileDto)).rejects.toThrow(
+          new ConflictException('Username is already taken'),
+        );
+        expect(prisma.user.create).not.toHaveBeenCalled();
+      });
+
+      it('rejects a token without an email', async () => {
+        await expect(
+          service.completeProfileSetup({ ...identity, email: undefined }, profileDto),
+        ).rejects.toThrow(new BadRequestException(PROFILE_EMAIL_REQUIRED));
+        expect(prisma.user.create).not.toHaveBeenCalled();
+      });
+
+      it.each([
+        ['the profile was created concurrently', { id: 'row' }, null, PROFILE_ALREADY_EXISTS],
+        ['the username was claimed concurrently', null, { id: 'row' }, 'Username is already taken'],
+      ])('answers 409 when %s', async (_label, profileRow, usernameRow, message) => {
+        // Before the insert: no profile, username free. After the unique violation: the
+        // re-query finds the row that won the race.
+        prisma.user.findUnique
+          .mockResolvedValueOnce(null)
+          .mockResolvedValueOnce(null)
+          .mockResolvedValueOnce(profileRow)
+          .mockResolvedValueOnce(usernameRow);
+        prisma.user.create.mockRejectedValue(uniqueViolation());
+
+        await expect(service.completeProfileSetup(identity, profileDto)).rejects.toThrow(
+          new ConflictException(message),
+        );
+      });
+
+      it('answers EmailAlreadyExistsError when another account owns the email', async () => {
+        mockRows();
+        prisma.user.create.mockRejectedValue(uniqueViolation());
+
+        await expect(service.completeProfileSetup(identity, profileDto)).rejects.toBeInstanceOf(
+          EmailAlreadyExistsError,
+        );
+      });
+
+      it('rethrows other database errors and never deletes the Firebase account', async () => {
+        mockRows();
+        const failure = new Error('connection lost');
+        prisma.user.create.mockRejectedValue(failure);
+
+        await expect(service.completeProfileSetup(identity, profileDto)).rejects.toBe(failure);
+        expect(firebaseAuth.deleteUser).not.toHaveBeenCalled();
+      });
     });
   });
 });

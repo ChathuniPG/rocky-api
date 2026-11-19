@@ -5,26 +5,35 @@ import {
   HttpCode,
   HttpStatus,
   Post,
+  Query,
   Req,
   Res,
   UnauthorizedException,
+  UseFilters,
 } from '@nestjs/common';
 import {
   ApiCookieAuth,
   ApiCreatedResponse,
+  ApiFoundResponse,
   ApiNoContentResponse,
   ApiOkResponse,
   ApiOperation,
+  ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import {
   ID_TOKEN_COOKIE,
+  OAUTH_COOKIE,
+  OAUTH_COOKIE_PATH,
   readCookie,
   REFRESH_COOKIE_PATH,
   REFRESH_TOKEN_COOKIE,
 } from '../../common/auth/auth-cookies';
+import type { VerifiedIdentity } from '../../common/auth/authenticated-request';
+import { AllowIncompleteProfile } from '../../common/decorators/allow-incomplete-profile.decorator';
+import { CurrentIdentity } from '../../common/decorators/current-identity.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { ApiErrorResponses } from '../../common/swagger/api-error-responses.decorator';
@@ -32,9 +41,19 @@ import { AUTH_THROTTLE, DEFAULT_THROTTLER } from '../../common/throttling/thrott
 import type { User } from '../../generated/prisma/client';
 import { AuthCookieService } from './auth-cookie.service';
 import { AuthService } from './auth.service';
+import { GoogleSignInQueryDto } from './dto/google-sign-in-query.dto';
 import { LoginDto } from './dto/login.dto';
+import { ProfileSetupResponseDto } from './dto/profile-setup-response.dto';
+import { ProfileSetupDto } from './dto/profile-setup.dto';
 import { SignupDto } from './dto/signup.dto';
 import { UserResponseDto } from './dto/user-response.dto';
+import { GoogleCallbackExceptionFilter } from './google/google-callback-exception.filter';
+import {
+  GOOGLE_ACCOUNT_EXISTS_PATH,
+  GOOGLE_SIGN_IN_FAILED_PATH,
+  GoogleAuthService,
+  WELCOME_PATH,
+} from './google/google-auth.service';
 
 /** NFR-SEC-05: stricter per-IP limit for the endpoints that hit Firebase with credentials. */
 const AuthThrottle = (): MethodDecorator & ClassDecorator =>
@@ -44,6 +63,18 @@ const AuthThrottle = (): MethodDecorator & ClassDecorator =>
 const SESSION_COOKIE_HEADERS = {
   'Set-Cookie': {
     description: `Sets the httpOnly session cookies ${ID_TOKEN_COOKIE} (path /) and ${REFRESH_TOKEN_COOKIE} (path ${REFRESH_COOKIE_PATH}).`,
+    schema: { type: 'string' },
+  },
+};
+
+/** OpenAPI description of the Set-Cookie headers of a successful Google callback. */
+const GOOGLE_CALLBACK_HEADERS = {
+  Location: {
+    description: `returnTo for an existing user, ${WELCOME_PATH}?returnTo=... for a new one, ${GOOGLE_SIGN_IN_FAILED_PATH} or ${GOOGLE_ACCOUNT_EXISTS_PATH} on failure.`,
+    schema: { type: 'string' },
+  },
+  'Set-Cookie': {
+    description: `Always clears ${OAUTH_COOKIE}. On success also sets ${ID_TOKEN_COOKIE} and ${REFRESH_TOKEN_COOKIE}, exactly like login.`,
     schema: { type: 'string' },
   },
 };
@@ -58,6 +89,7 @@ const SESSION_COOKIE_HEADERS = {
 export class AuthController {
   constructor(
     private readonly authService: AuthService,
+    private readonly googleAuth: GoogleAuthService,
     private readonly cookies: AuthCookieService,
   ) {}
 
@@ -100,7 +132,9 @@ export class AuthController {
   @ApiErrorResponses(
     HttpStatus.BAD_REQUEST,
     { status: HttpStatus.UNAUTHORIZED, description: 'Invalid email or password.' },
-    HttpStatus.FORBIDDEN,
+    // Not the shared default: login is public, so the guard's PROFILE_INCOMPLETE rule never
+    // applies, and a missing users row answers 401 (design §3.5).
+    { status: HttpStatus.FORBIDDEN, description: 'The account is disabled.' },
     {
       status: HttpStatus.TOO_MANY_REQUESTS,
       description: 'Rate limit exceeded, or Firebase is blocking further attempts.',
@@ -181,6 +215,128 @@ export class AuthController {
       readCookie(request, REFRESH_TOKEN_COOKIE),
     );
     this.cookies.clearSessionCookies(response);
+  }
+
+  /**
+   * Starts Google sign-in (issue #42, ADR-015): stores the state, PKCE verifier and
+   * returnTo in rocky_oauth and redirects the browser to Google's consent screen. Opened
+   * by a full-page navigation from rocky-web, never by fetch.
+   */
+  @Public()
+  @AuthThrottle()
+  @Get('google')
+  @ApiOperation({
+    summary: 'Start Google sign-in (browser redirect)',
+    description: 'Open in the browser, not with fetch: the response is a redirect to Google.',
+  })
+  @ApiFoundResponse({
+    description: "Redirect to Google's consent screen.",
+    headers: {
+      Location: { description: 'Google authorization URL.', schema: { type: 'string' } },
+      'Set-Cookie': {
+        description: `Sets the httpOnly ${OAUTH_COOKIE} cookie (path ${OAUTH_COOKIE_PATH}, 10 minutes).`,
+        schema: { type: 'string' },
+      },
+    },
+  })
+  @ApiErrorResponses(HttpStatus.BAD_REQUEST, HttpStatus.TOO_MANY_REQUESTS)
+  startGoogleSignIn(@Query() query: GoogleSignInQueryDto, @Res() response: Response): void {
+    const { authorizationUrl, oauthCookie } = this.googleAuth.startSignIn(query.returnTo);
+    this.cookies.setOAuthCookie(response, oauthCookie);
+    response.redirect(HttpStatus.FOUND, authorizationUrl);
+  }
+
+  /**
+   * Google's redirect back after the consent screen (issue #42). Always answers with a
+   * redirect, never JSON: on success it sets the session cookies like login; every failure,
+   * including a cancelled consent, ends on the login page. Only `code`, `state` and
+   * `error` are read, as raw values, so the other parameters Google adds are ignored
+   * instead of failing validation; the service checks the values.
+   */
+  @Public()
+  @AuthThrottle()
+  @Get('google/callback')
+  @UseFilters(GoogleCallbackExceptionFilter)
+  @ApiOperation({
+    summary: 'Google OAuth callback (browser redirect)',
+    description:
+      'Called by Google, not by clients. Any other query parameters are ignored. Errors, ' +
+      'including rate limiting, are redirects to the login page, never JSON.',
+  })
+  @ApiQuery({ name: 'code', required: false, description: 'Authorization code from Google.' })
+  @ApiQuery({ name: 'state', required: false, description: 'Must match the rocky_oauth cookie.' })
+  @ApiQuery({ name: 'error', required: false, description: 'Set by Google, e.g. access_denied.' })
+  @ApiFoundResponse({ description: 'Redirect into rocky-web.', headers: GOOGLE_CALLBACK_HEADERS })
+  async googleCallback(
+    @Query('code') code: unknown,
+    @Query('state') state: unknown,
+    @Query('error') error: unknown,
+    @Req() request: Request,
+    @Res() response: Response,
+  ): Promise<void> {
+    const outcome = await this.googleAuth.completeSignIn(
+      { code, state, error },
+      readCookie(request, OAUTH_COOKIE),
+    );
+    // One attempt, one use: the state and verifier are gone whatever the outcome.
+    this.cookies.clearOAuthCookie(response);
+    if (outcome.session) {
+      this.cookies.setSessionCookies(response, outcome.session);
+    }
+    response.redirect(HttpStatus.FOUND, outcome.redirectPath);
+  }
+
+  /**
+   * Prefills the /welcome form of a signed-in user who has no profile yet, typically a new
+   * Google user (FR-AUTH-10). `@AllowIncompleteProfile()` lets the request past the
+   * PROFILE_INCOMPLETE rule; the token is still required.
+   */
+  @AllowIncompleteProfile()
+  @AuthThrottle()
+  @Get('profile-setup')
+  @ApiCookieAuth(ID_TOKEN_COOKIE)
+  @ApiOperation({ summary: 'Suggested values for completing a new profile' })
+  @ApiOkResponse({ type: ProfileSetupResponseDto })
+  @ApiErrorResponses(
+    { status: HttpStatus.BAD_REQUEST, description: 'The account has no email address.' },
+    HttpStatus.UNAUTHORIZED,
+    { status: HttpStatus.CONFLICT, description: 'The profile already exists.' },
+    HttpStatus.TOO_MANY_REQUESTS,
+    HttpStatus.SERVICE_UNAVAILABLE,
+  )
+  getProfileSetup(@CurrentIdentity() identity: VerifiedIdentity): Promise<ProfileSetupResponseDto> {
+    return this.authService.getProfileSetup(identity);
+  }
+
+  /**
+   * Creates the profile of a signed-in user who has none yet (FR-AUTH-10), with the same
+   * username and display name rules as sign-up. Afterwards every endpoint works normally;
+   * the session cookies stay as they are.
+   */
+  @AllowIncompleteProfile()
+  @AuthThrottle()
+  @Post('profile-setup')
+  @ApiCookieAuth(ID_TOKEN_COOKIE)
+  @ApiOperation({ summary: 'Complete a new profile (choose a username)' })
+  @ApiCreatedResponse({ type: UserResponseDto, description: 'Profile created.' })
+  @ApiErrorResponses(
+    {
+      status: HttpStatus.BAD_REQUEST,
+      description: 'Invalid or reserved username, invalid display name, or no account email.',
+    },
+    HttpStatus.UNAUTHORIZED,
+    {
+      status: HttpStatus.CONFLICT,
+      description: 'The profile already exists, or the username or email is taken.',
+    },
+    HttpStatus.TOO_MANY_REQUESTS,
+    HttpStatus.SERVICE_UNAVAILABLE,
+  )
+  completeProfileSetup(
+    @CurrentIdentity() identity: VerifiedIdentity,
+    @Body() dto: ProfileSetupDto,
+  ): Promise<UserResponseDto> {
+    return this.authService.completeProfileSetup(identity, dto);
   }
 
   /** Returns the signed-in user's profile and settings. */

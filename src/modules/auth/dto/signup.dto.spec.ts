@@ -30,7 +30,7 @@ describe('SignupDto', () => {
 
   // "me" is also shorter than the 3-character minimum; it is reserved anyway, so the rule
   // still holds if the minimum ever changes.
-  it.each(['me', 'search', 'admin', 'api', 'settings'])(
+  it.each(['me', 'search', 'admin', 'api', 'settings', 'welcome', 'privacy'])(
     'rejects the reserved username %s',
     (username) => {
       expect(parse({ ...VALID, username }).errors).toContain(RESERVED_USERNAME);

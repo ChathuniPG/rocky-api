@@ -1,7 +1,8 @@
 /**
  * Usernames that cannot be registered, because they collide with API routes
- * (/users/me, /users/search) or with frontend routes (design §7.1), or could be mistaken
- * for an official account. Compared after the username is lowercased.
+ * (/users/me, /users/search), with frontend routes (design §7.1, e.g. /welcome) or with
+ * static pages served by Nginx on the same domain (/privacy), or could be mistaken for an
+ * official account. Compared after the username is lowercased.
  */
 export const RESERVED_USERNAMES: readonly string[] = [
   'admin',
@@ -13,10 +14,12 @@ export const RESERVED_USERNAMES: readonly string[] = [
   'messages',
   'notifications',
   'posts',
+  'privacy',
   'search',
   'settings',
   'signup',
   'uploads',
+  'welcome',
 ];
 
 /** FR-SET-03: English plus one additional language (Sinhala). */

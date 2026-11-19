@@ -18,8 +18,9 @@ const ONE_MINUTE_MS = 60_000;
 export const DEFAULT_THROTTLE = { ttl: ONE_MINUTE_MS, limit: 100 } as const;
 
 /**
- * Stricter limit for signup, login and refresh: 10 requests per minute per client IP. It
- * slows down credential stuffing and account-creation spam before any Firebase call.
+ * Stricter limit for signup, login, refresh and the Google sign-in routes: 10 requests per
+ * minute per client IP. It slows down credential stuffing and account-creation spam before
+ * any Firebase or Google call.
  */
 export const AUTH_THROTTLE = { ttl: ONE_MINUTE_MS, limit: 10 } as const;
 

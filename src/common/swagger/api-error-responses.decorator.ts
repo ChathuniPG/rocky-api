@@ -6,7 +6,8 @@ import { ErrorResponseDto } from './error-response.dto';
 const ERROR_DESCRIPTIONS: Readonly<Partial<Record<HttpStatus, string>>> = {
   [HttpStatus.BAD_REQUEST]: 'Validation failed; `message` lists every failed rule.',
   [HttpStatus.UNAUTHORIZED]: 'Not signed in, or the session is invalid or expired.',
-  [HttpStatus.FORBIDDEN]: 'The account is disabled.',
+  [HttpStatus.FORBIDDEN]:
+    'The account is disabled, or the profile is not set up yet (`code`: PROFILE_INCOMPLETE).',
   [HttpStatus.NOT_FOUND]: 'The resource does not exist.',
   [HttpStatus.CONFLICT]: 'The resource already exists.',
   [HttpStatus.PAYLOAD_TOO_LARGE]: 'The request body or uploaded file is too large.',

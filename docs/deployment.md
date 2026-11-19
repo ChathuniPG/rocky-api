@@ -303,6 +303,9 @@ validates them and the API refuses to start if one is missing or invalid.
 | `FIREBASE_STORAGE_BUCKET`       | Bare bucket name, no `gs://`.                                                     |
 | `FIREBASE_WEB_API_KEY`          | Firebase console → Project settings → General. Treat it as a secret.             |
 | `COOKIE_SECURE`                 | **`true`**. The API refuses to start in production with `false` (ADR-003).        |
+| `GOOGLE_OAUTH_CLIENT_ID`        | Google Cloud console → APIs & Services → Credentials → the Web OAuth client.     |
+| `GOOGLE_OAUTH_CLIENT_SECRET`    | Same OAuth client. Treat it as a secret.                                          |
+| `GOOGLE_OAUTH_REDIRECT_URI`     | `https://<domain>/api/v1/auth/google/callback`, also listed under the client's Authorized redirect URIs. The API refuses to start in production without https (ADR-015). |
 | `SEED_DEMO_PASSWORD`            | Optional. Only needed for the demo seed (below); the API ignores it.             |
 | `SEED_ENV`                      | Optional. **`production`** if you run the demo seed (below); the API ignores it. |
 
@@ -701,6 +704,38 @@ curl -sI http://rocky-social.duckdns.org/ | grep -i strict-transport    # nothin
 curl -sI http://rocky-social.duckdns.org/ | grep -i '^server'           # "Server: nginx", no version
 ```
 
+### 16.10 Privacy page
+
+`https://rocky-social.duckdns.org/privacy` is a static privacy policy, linked from the Google
+OAuth consent screen (issue #42). It is a single HTML file on the server,
+`/var/www/rocky-static/privacy.html`, and is not in either repository. Nginx serves it from the
+`location = /privacy` block in `rocky.conf`; the exact match wins over `location /`, so the
+request never reaches Next.js. The block sets no `add_header`, so the server-level HSTS header
+still applies (16.9).
+
+**The HTML file.** On the existing production server, `/var/www/rocky-static/privacy.html`
+already exists. On a fresh server, create it:
+
+```bash
+sudo mkdir -p /var/www/rocky-static
+sudo nano /var/www/rocky-static/privacy.html    # paste the privacy policy HTML
+sudo chmod 644 /var/www/rocky-static/privacy.html
+```
+
+**The Nginx block.** On a fresh server, the block is part of `rocky.conf` as installed in 16.5;
+reload Nginx after creating the file (`sudo nginx -t && sudo systemctl reload nginx`). On the
+existing server, the block is applied at the next deploy by the normal
+[Apply a changed config](#apply-a-changed-config) step (section 14: `cp`, `nginx -t`, reload)
+once this change is merged into `main`.
+
+Check from your machine:
+
+```bash
+curl -sI https://rocky-social.duckdns.org/privacy
+# HTTP/1.1 200 OK
+# Content-Type: text/html
+```
+
 ## 17. Redeploy
 
 After changes are merged into `main`, on the server:
@@ -750,6 +785,8 @@ Common causes:
 - `Invalid environment configuration: ...` — a variable in `.env` is missing or invalid. The
   message names the variable but never prints its value. Compare with `.env.example`.
 - `COOKIE_SECURE must be true in production` — set `COOKIE_SECURE=true`.
+- `GOOGLE_OAUTH_REDIRECT_URI must use https in production` or `must have the path
+  /api/v1/auth/google/callback` — set it to `https://<domain>/api/v1/auth/google/callback`.
 - `HOST must be an IPv4 or IPv6 address` — `HOST` must be an IP literal such as `127.0.0.1`,
   not `localhost`; or remove the line to use the default.
 - Service account errors — check `FIREBASE_SERVICE_ACCOUNT_PATH` is absolute and correct,

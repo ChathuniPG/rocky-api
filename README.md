@@ -97,6 +97,16 @@ More detail: [design.md §2 System Architecture](docs/design.md#2-system-archite
 - If creating the PostgreSQL user fails, sign-up deletes the Firebase account it just created, so
   the two systems stay consistent. Firebase errors are mapped to safe messages: "Invalid email or
   password" never reveals which emails are registered.
+- **Sign in with Google** (ADR-015). The API runs the OAuth Authorization Code flow with PKCE
+  itself, exchanges the Google ID token with Firebase `signInWithIdp` and sets the same cookies as
+  login, so no token ever reaches the browser. Every failure, including a cancel on Google's
+  screen, redirects to `/login?error=google`.
+- **Choose a username after the first Google sign-in.** Until the profile exists, protected
+  endpoints answer `403` with `code: "PROFILE_INCOMPLETE"`. `GET /auth/profile-setup` suggests a
+  valid, unreserved and free username from the email, and `POST /auth/profile-setup` applies the
+  sign-up rules.
+- An email that already has a password account cannot use Google: the sign-in is refused before
+  Firebase is called (`/login?error=google_account_exists`), so the password keeps working.
 
 **Posts and feed**
 
@@ -141,7 +151,8 @@ More detail: [design.md §2 System Architecture](docs/design.md#2-system-archite
 - `GET /health` reports the API and database status.
 - Swagger UI at `/api/docs` and the OpenAPI JSON at `/api/docs-json`.
 - Rate limiting by client IP (ADR-012): 100 requests per minute overall, 10 per minute on
-  sign-up, login and refresh, 20 per minute on uploads and 30 per minute on sending messages.
+  sign-up, login, refresh, Google sign-in and profile setup, 20 per minute on uploads and 30 per
+  minute on sending messages.
 - Central error handling: a global exception filter returns one error shape
   (`statusCode`, `error`, `message`, `path`, `timestamp`) and never exposes stack traces or raw
   Prisma or Firebase errors.
@@ -280,6 +291,9 @@ in `.gitignore`, and the Firebase service account key lives outside the reposito
 | `FIREBASE_STORAGE_BUCKET`       | Yes      | Storage bucket name, without `gs://`                                            |
 | `FIREBASE_WEB_API_KEY`          | Yes      | Web API key for the Auth REST sign-in and refresh calls. Treat it as secret     |
 | `COOKIE_SECURE`                 | No       | `Secure` flag on the auth cookies, default `true`. Must be `true` in production |
+| `GOOGLE_OAUTH_CLIENT_ID`        | Yes      | Google OAuth client ID, ending in `.apps.googleusercontent.com`                 |
+| `GOOGLE_OAUTH_CLIENT_SECRET`    | Yes      | Secret of the same OAuth client. Never commit or log it                         |
+| `GOOGLE_OAUTH_REDIRECT_URI`     | Yes      | Callback on the web origin, path `/api/v1/auth/google/callback`. https in prod  |
 | `SEED_DEMO_PASSWORD`            | Seed     | Shared password of the demo users (seed script only)                            |
 | `SEED_ENV`                      | Seed     | `local` or `production`. Part of every demo email (seed script only)            |
 
@@ -295,6 +309,13 @@ in `.gitignore`, and the Firebase service account key lives outside the reposito
    key into `FIREBASE_WEB_API_KEY`.
 4. From the **Storage** page, copy the bucket name (usually `<project-id>.firebasestorage.app`)
    into `FIREBASE_STORAGE_BUCKET`.
+5. **Google sign-in:** enable **Authentication → Sign-in method → Google**. Firebase creates a Web
+   OAuth client in the Google Cloud project. In **Google Cloud console → APIs & Services →
+   Credentials**, open that client, add each environment's callback under **Authorized redirect
+   URIs** (locally `http://localhost:3000/api/v1/auth/google/callback`, which goes through the
+   Next.js rewrite, and `https://<domain>/api/v1/auth/google/callback` in production), and copy its
+   client ID and secret into `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET`. Set
+   `GOOGLE_OAUTH_REDIRECT_URI` to the same callback URL.
 
 ### PostgreSQL setup
 
@@ -330,7 +351,7 @@ precision, and every list query has a matching index (ADR-005).
 
 ![Database ERD](docs/diagrams/rocky_database_schema_erd.drawio.svg)
 
-_Figure 3: Database ERD: the R.O.C.K.Y. PostgreSQL schema (crow’s foot notation)_
+_Figure 4: Database ERD: the R.O.C.K.Y. PostgreSQL schema (crow’s foot notation)_
 
 Column-level detail: [design.md §4 Data Model](docs/design.md#4-data-model).
 
@@ -340,15 +361,15 @@ The global prefix is `/api/v1` (Swagger is the exception: `/api/docs`). Controll
 delegate to services, and only services use Prisma. All routes require the `rocky_id` cookie
 except those marked _public_.
 
-| Module                | Controller(s)                                   | Routes                                                                                                                                                                                                                  | Responsibility                                                                                          |
-| --------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `AuthModule`          | `AuthController`                                | `POST /auth/signup` _(public)_, `POST /auth/login` _(public)_, `POST /auth/refresh` _(public, refresh cookie)_, `POST /auth/logout` _(public, either cookie)_, `GET /auth/me`                                           | Sign-up with compensation, login, refresh, logout and auth cookies (`AuthService`, `AuthCookieService`) |
-| `UsersModule`         | `UsersController`                               | `GET /users/search`, `GET /users/me/saved`, `PATCH /users/me`, `GET /users/:username`, `GET /users/:username/posts`, `POST /users/:id/follow`, `DELETE /users/:id/follow`                                               | Profiles, settings, search and follows (`UsersService`, `FollowsService`)                               |
-| `PostsModule`         | `PostsController`, `CommentsController`         | `POST /posts`, `GET /posts/feed`, `GET /posts/:id`, `PATCH /posts/:id`, `DELETE /posts/:id`, `POST`/`DELETE /posts/:id/like`, `POST`/`DELETE /posts/:id/save`, `GET`/`POST /posts/:id/comments`, `DELETE /comments/:id` | Posts, feed, likes, saves and comments (`PostsService`, `PostEngagementService`, `CommentsService`)     |
-| `UploadsModule`       | `UploadsController`                             | `POST /uploads`                                                                                                                                                                                                         | Multipart parsing, magic-byte validation and Firebase Storage uploads                                   |
-| `NotificationsModule` | `NotificationsController`                       | `GET /notifications`, `GET /notifications/unread-count`, `PATCH /notifications/read-all`, `PATCH /notifications/:id/read`                                                                                               | Notification queries. Exports the service other modules use to create notifications                     |
-| `MessagesModule`      | `ConversationsController`, `MessagesController` | `GET /conversations`, `GET /conversations/unread-count`, `POST /conversations`, `GET /conversations/:id/messages`, `POST /conversations/:id/messages`, `PATCH /conversations/:id/read`                                  | Conversations, messages, read status and polling (`ConversationsService`, `MessagesService`)            |
-| `HealthModule`        | `HealthController`                              | `GET /health` _(public)_                                                                                                                                                                                                | API and database status                                                                                 |
+| Module                | Controller(s)                                   | Routes                                                                                                                                                                                                                                                                                                                              | Responsibility                                                                                                                                                                   |
+| --------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AuthModule`          | `AuthController`                                | `POST /auth/signup` _(public)_, `POST /auth/login` _(public)_, `POST /auth/refresh` _(public, refresh cookie)_, `POST /auth/logout` _(public, either cookie)_, `GET /auth/me`, `GET /auth/google` _(public, redirect)_, `GET /auth/google/callback` _(public, redirect)_, `GET`/`POST /auth/profile-setup` _(profile not required)_ | Sign-up with compensation, login, refresh, logout, auth cookies, Google sign-in and profile setup (`AuthService`, `AuthCookieService`, `GoogleAuthService`, `GoogleOAuthClient`) |
+| `UsersModule`         | `UsersController`                               | `GET /users/search`, `GET /users/me/saved`, `PATCH /users/me`, `GET /users/:username`, `GET /users/:username/posts`, `POST /users/:id/follow`, `DELETE /users/:id/follow`                                                                                                                                                           | Profiles, settings, search and follows (`UsersService`, `FollowsService`)                                                                                                        |
+| `PostsModule`         | `PostsController`, `CommentsController`         | `POST /posts`, `GET /posts/feed`, `GET /posts/:id`, `PATCH /posts/:id`, `DELETE /posts/:id`, `POST`/`DELETE /posts/:id/like`, `POST`/`DELETE /posts/:id/save`, `GET`/`POST /posts/:id/comments`, `DELETE /comments/:id`                                                                                                             | Posts, feed, likes, saves and comments (`PostsService`, `PostEngagementService`, `CommentsService`)                                                                              |
+| `UploadsModule`       | `UploadsController`                             | `POST /uploads`                                                                                                                                                                                                                                                                                                                     | Multipart parsing, magic-byte validation and Firebase Storage uploads                                                                                                            |
+| `NotificationsModule` | `NotificationsController`                       | `GET /notifications`, `GET /notifications/unread-count`, `PATCH /notifications/read-all`, `PATCH /notifications/:id/read`                                                                                                                                                                                                           | Notification queries. Exports the service other modules use to create notifications                                                                                              |
+| `MessagesModule`      | `ConversationsController`, `MessagesController` | `GET /conversations`, `GET /conversations/unread-count`, `POST /conversations`, `GET /conversations/:id/messages`, `POST /conversations/:id/messages`, `PATCH /conversations/:id/read`                                                                                                                                              | Conversations, messages, read status and polling (`ConversationsService`, `MessagesService`)                                                                                     |
+| `HealthModule`        | `HealthController`                              | `GET /health` _(public)_                                                                                                                                                                                                                                                                                                            | API and database status                                                                                                                                                          |
 
 The infrastructure modules have no controllers:
 
@@ -377,22 +398,23 @@ Swagger.
 
 The Architecture Decision Records are in [design.md §8](docs/design.md#8-architecture-decision-records):
 
-| ADR                                                                                        | Decision                                                                                              |
-| ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
-| [ADR-001](docs/design.md#adr-001-prisma-as-the-orm)                                        | Prisma as the ORM, for type safety and reliable migrations                                            |
-| [ADR-002](docs/design.md#adr-002-firebase-rest-api-for-sign-in-admin-sdk-for-verification) | Firebase Auth REST API to sign in and refresh, Admin SDK to create users and verify and revoke tokens |
-| [ADR-003](docs/design.md#adr-003-httponly-cookies-for-token-storage)                       | Tokens in httpOnly, Secure, SameSite=Lax cookies, never in localStorage                               |
-| [ADR-004](docs/design.md#adr-004-single-domain-with-nginx-path-based-routing)              | One domain: Nginx routes `/api` to NestJS and `/` to Next.js, so no CORS is needed                    |
-| [ADR-005](docs/design.md#adr-005-cursor-based-pagination)                                  | Cursor (keyset) pagination on `(created_at, id)`                                                      |
-| [ADR-006](docs/design.md#adr-006-denormalized-like-and-comment-counters)                   | Denormalised `like_count` and `comment_count`, updated in the same transaction                        |
-| [ADR-007](docs/design.md#adr-007-two-step-media-upload)                                    | Two-step upload: `POST /uploads` returns a path, and `POST /posts` uses it (ownership checked)        |
-| [ADR-008](docs/design.md#adr-008-polling-for-new-messages)                                 | Poll for new messages instead of WebSockets                                                           |
-| [ADR-009](docs/design.md#adr-009-postgresql-on-the-same-ec2-instance)                      | PostgreSQL on the same EC2 instance, bound to localhost                                               |
-| [ADR-010](docs/design.md#adr-010-oxlint-as-the-backend-linter)                             | oxlint (type-aware) as the linter, Prettier as the formatter                                          |
-| [ADR-011](docs/design.md#adr-011-service-account-loaded-from-a-file-path)                  | Service account key loaded from a file path, validated at startup                                     |
-| [ADR-012](docs/design.md#adr-012-in-memory-rate-limit-storage)                             | In-memory rate-limit storage, keyed by client IP, with a single PM2 instance                          |
-| [ADR-013](docs/design.md#adr-013-client-side-route-protection)                             | Client-side route protection in rocky-web, so sessions survive ID-token expiry                        |
-| [ADR-014](docs/design.md#adr-014-full-page-load-when-the-signed-in-user-changes)           | Full page load when the signed-in user changes (rocky-web)                                            |
+| ADR                                                                                               | Decision                                                                                               |
+| ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| [ADR-001](docs/design.md#adr-001-prisma-as-the-orm)                                               | Prisma as the ORM, for type safety and reliable migrations                                             |
+| [ADR-002](docs/design.md#adr-002-firebase-rest-api-for-sign-in-admin-sdk-for-verification)        | Firebase Auth REST API to sign in and refresh, Admin SDK to create users and verify and revoke tokens  |
+| [ADR-003](docs/design.md#adr-003-httponly-cookies-for-token-storage)                              | Tokens in httpOnly, Secure, SameSite=Lax cookies, never in localStorage                                |
+| [ADR-004](docs/design.md#adr-004-single-domain-with-nginx-path-based-routing)                     | One domain: Nginx routes `/api` to NestJS and `/` to Next.js, so no CORS is needed                     |
+| [ADR-005](docs/design.md#adr-005-cursor-based-pagination)                                         | Cursor (keyset) pagination on `(created_at, id)`                                                       |
+| [ADR-006](docs/design.md#adr-006-denormalized-like-and-comment-counters)                          | Denormalised `like_count` and `comment_count`, updated in the same transaction                         |
+| [ADR-007](docs/design.md#adr-007-two-step-media-upload)                                           | Two-step upload: `POST /uploads` returns a path, and `POST /posts` uses it (ownership checked)         |
+| [ADR-008](docs/design.md#adr-008-polling-for-new-messages)                                        | Poll for new messages instead of WebSockets                                                            |
+| [ADR-009](docs/design.md#adr-009-postgresql-on-the-same-ec2-instance)                             | PostgreSQL on the same EC2 instance, bound to localhost                                                |
+| [ADR-010](docs/design.md#adr-010-oxlint-as-the-backend-linter)                                    | oxlint (type-aware) as the linter, Prettier as the formatter                                           |
+| [ADR-011](docs/design.md#adr-011-service-account-loaded-from-a-file-path)                         | Service account key loaded from a file path, validated at startup                                      |
+| [ADR-012](docs/design.md#adr-012-in-memory-rate-limit-storage)                                    | In-memory rate-limit storage, keyed by client IP, with a single PM2 instance                           |
+| [ADR-013](docs/design.md#adr-013-client-side-route-protection)                                    | Client-side route protection in rocky-web, so sessions survive ID-token expiry                         |
+| [ADR-014](docs/design.md#adr-014-full-page-load-when-the-signed-in-user-changes)                  | Full page load when the signed-in user changes (rocky-web)                                             |
+| [ADR-015](docs/design.md#adr-015-google-sign-in-via-server-side-oauth-and-firebase-signinwithidp) | Google sign-in: server-side OAuth with PKCE and Firebase `signInWithIdp`, password accounts not linked |
 
 Further decisions in the implementation:
 
@@ -415,15 +437,17 @@ Further decisions in the implementation:
 
 | Suite      | Command            | Count                  | Needs                                            |
 | ---------- | ------------------ | ---------------------- | ------------------------------------------------ |
-| Unit       | `npm test`         | 703 tests in 41 suites | Nothing: Prisma and Firebase are mocked          |
-| End-to-end | `npm run test:e2e` | 112 tests in 11 suites | The local database and the live Firebase project |
+| Unit       | `npm test`         | 931 tests in 52 suites | Nothing: Prisma and Firebase are mocked          |
+| End-to-end | `npm run test:e2e` | 128 tests in 12 suites | The local database and the live Firebase project |
 
 - **Unit tests** sit next to the code they test (`*.spec.ts` in `src/` and `scripts/`).
 - **End-to-end tests** (`test/*.e2e-spec.ts`) start the real `AppModule` against the local
   PostgreSQL database and the **live Firebase project**. Each suite creates uniquely named users
   and deletes them afterwards (the database row, which cascades, and the Firebase account), along
   with any files it uploaded. Before running them: create `.env`, then run `npm run db:up` and
-  `npm run db:migrate:deploy`.
+  `npm run db:migrate:deploy`. The Google sign-in suite is the exception: it stubs Google's token
+  endpoint, Firebase `signInWithIdp` and the Admin SDK, fails on any other outgoing request, and
+  only writes one users row, which it deletes.
 - **CI** (GitHub Actions) runs on every pull request and every push to `main`. It covers
   everything except e2e: lint, format check, typecheck, build, unit tests, and a migration job
   that applies all migrations to a fresh PostgreSQL 18 database and checks for schema drift. It
@@ -450,7 +474,7 @@ Production runs on one EC2 instance. The full, tested guide is
    `~/rocky/secrets/firebase-admin.json` (directory mode 700, file mode 600).
    ([§9](docs/deployment.md#9-firebase-service-account))
 8. **Clone the repo and create `.env`:** set `NODE_ENV=production` and `COOKIE_SECURE=true`, plus
-   `DATABASE_URL` and the Firebase variables. Then `chmod 600 .env`.
+   `DATABASE_URL`, the Firebase variables and the Google OAuth variables. Then `chmod 600 .env`.
    ([§10](docs/deployment.md#10-clone-the-repository), [§11](docs/deployment.md#11-production-env))
 9. **Build, migrate and start:** `npm ci --include=dev`, `npm run build`,
    `npm run db:migrate:deploy` and `pm2 start ecosystem.config.cjs` (one fork-mode instance).
@@ -488,6 +512,11 @@ Production runs on one EC2 instance. The full, tested guide is
 - **Possible orphaned uploads.** An upload that is never used for a post, or a Storage file whose
   deletion fails, stays in the bucket. Such failures are logged (ADR-007).
 - **No account deletion.** The API has no endpoint for deleting a user.
+- **Google consent screen branding.** Until Google verifies the app's branding, the consent screen
+  may show the domain instead of the R.O.C.K.Y. name and logo.
+- **No account linking.** An email registered with a password cannot sign in with Google, and a
+  Google account cannot add a password. Such users are sent to `/login?error=google_account_exists`
+  (ADR-015).
 - **Plain HTTP by bare IP returns 404.** Only `rocky-social.duckdns.org` is served, and plain HTTP
   for that name is redirected to HTTPS.
 
@@ -503,6 +532,9 @@ Production runs on one EC2 instance. The full, tested guide is
 - A scheduled cleanup job for orphaned uploads.
 - Account deletion that keeps the denormalised counters correct.
 - Upgrading `firebase-admin` once a release removes the deprecation warnings.
+- Changing the username later, from Settings.
+- Linking Google to an existing email/password account after the user proves they own it.
+- Using the Google profile photo as the initial avatar.
 
 ## AI-assisted development
 
@@ -519,4 +551,4 @@ GitHub issues and pull requests that pass CI.
 | [docs/design.md](docs/design.md)             | Architecture, authentication, data model, API contract, ADRs |
 | [docs/deployment.md](docs/deployment.md)     | AWS EC2 setup, Nginx, PM2, HTTPS and redeploy                |
 | [docs/ci.md](docs/ci.md)                     | GitHub Actions workflow and running e2e tests locally        |
-| [docs/diagrams/](docs/diagrams/)             | Editable draw.io SVG diagrams (Figures 1–5)                  |
+| [docs/diagrams/](docs/diagrams/)             | Editable draw.io SVG diagrams (Figures 1–6)                  |
