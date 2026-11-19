@@ -16,6 +16,7 @@
 | 0.12        | 08 Nov 2026 | Chathuni Gunasena | Section 7.2: previous/next feed controls replace the scrollbar (FR-FEED-10).      |
 | 0.13        | 09 Nov 2026 | Chathuni Gunasena | Figures 1–5 embedded as editable draw.io SVG exports; Section 7.4: removed the broken colour-palette image link (the token table is the reference); Section 5.2: logout is public, matching the code.      |
 | 0.14        | 18 Nov 2026 | Chathuni Gunasena | Google sign-in (issue #42): added Section 3.8 and ADR-015; rocky_oauth cookie (3.2), PROFILE_INCOMPLETE rule (3.5), error code field (5.1), Google and profile-setup endpoints (5.2), modules (6), /welcome route (7.1), auth rate limit routes (ADR-012).      |
+| 0.15        | 19 Nov 2026 | Chathuni Gunasena | Section 3.8: Google sign-in flow added as Figure 3; later figures renumbered (ERD 4, post creation 5, route map 6); route map shows /welcome.      |
 
 ## 1. Purpose
 
@@ -149,7 +150,11 @@ Google sign-in follows ADR-015. NestJS runs the whole OAuth 2.0 Authorization Co
 
 **Profile not completed yet.** Until the users row exists, every protected endpoint answers 403 with code PROFILE_INCOMPLETE (Section 3.5). A user who leaves /welcome signs in with Google again later and lands on /welcome again.
 
-> **Note:** Figure 2 does not show the Google flow yet. The diagram is edited manually and will be updated by the developer.
+Figure 3 shows the Google sign-in sequence, including the provider check and profile setup for a new user.
+
+![Google sign-in flow](diagrams/rocky_google_sign_in_flow.drawio.svg)
+
+*Figure 3: Google sign-in flow: OAuth with PKCE, Firebase signInWithIdp, and profile setup on /welcome for a new user*
 
 ## 4. Data Model
 
@@ -274,11 +279,11 @@ The ordering rule (user_a_id \< user_b_id) guarantees only one conversation can 
 
 - A conversation belongs to exactly two users and has many messages.
 
-Figure 3 shows the complete schema, including keys and relationship cardinalities.
+Figure 4 shows the complete schema, including keys and relationship cardinalities.
 
 ![Database ERD](diagrams/rocky_database_schema_erd.drawio.svg)
 
-*Figure 3: Database ERD: the R.O.C.K.Y. PostgreSQL schema (crow’s foot notation)*
+*Figure 4: Database ERD: the R.O.C.K.Y. PostgreSQL schema (crow’s foot notation)*
 
 ## 5. API Contract
 
@@ -375,11 +380,11 @@ Conversations of other users are reported as 404, so their existence is not reve
 
 ### 5.3 Post Creation Flow
 
-Figure 4 shows how the Upload and Posts endpoints work together to create a post, implementing the two-step upload decided in ADR-007.
+Figure 5 shows how the Upload and Posts endpoints work together to create a post, implementing the two-step upload decided in ADR-007.
 
 ![Post creation with media upload](diagrams/rocky_post_creation_media_upload.drawio.svg)
 
-*Figure 4: Post creation with media upload to Firebase Storage*
+*Figure 5: Post creation with media upload to Firebase Storage*
 
 ## 6. Backend Module Structure (rocky-api)
 
@@ -421,11 +426,11 @@ Route protection follows ADR-013. The app routes are protected on the client: an
 
 “Continue with Google” on /login and /signup is a full page navigation to /api/v1/auth/google?returnTo=<next>, never a fetch, because the API answers with redirects (Section 3.8). When the API answers 403 with code PROFILE_INCOMPLETE, the AuthProvider sends the user to /welcome?returnTo=<current path>. /login shows a message for error=google (sign-in failed or was cancelled) and error=google_account_exists (log in with your password instead).
 
-Figure 5 summarizes the route structure and how authentication controls access.
+Figure 6 summarizes the route structure and how authentication controls access.
 
 ![Frontend route map](diagrams/rocky_frontend_route_map.drawio.svg)
 
-*Figure 5: Frontend route map: routes and layouts of rocky-web*
+*Figure 6: Frontend route map: routes and layouts of rocky-web*
 
 ### 7.2 Layout
 

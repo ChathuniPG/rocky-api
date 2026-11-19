@@ -351,7 +351,7 @@ precision, and every list query has a matching index (ADR-005).
 
 ![Database ERD](docs/diagrams/rocky_database_schema_erd.drawio.svg)
 
-_Figure 3: Database ERD: the R.O.C.K.Y. PostgreSQL schema (crow’s foot notation)_
+_Figure 4: Database ERD: the R.O.C.K.Y. PostgreSQL schema (crow’s foot notation)_
 
 Column-level detail: [design.md §4 Data Model](docs/design.md#4-data-model).
 
@@ -551,4 +551,4 @@ GitHub issues and pull requests that pass CI.
 | [docs/design.md](docs/design.md)             | Architecture, authentication, data model, API contract, ADRs |
 | [docs/deployment.md](docs/deployment.md)     | AWS EC2 setup, Nginx, PM2, HTTPS and redeploy                |
 | [docs/ci.md](docs/ci.md)                     | GitHub Actions workflow and running e2e tests locally        |
-| [docs/diagrams/](docs/diagrams/)             | Editable draw.io SVG diagrams (Figures 1–5)                  |
+| [docs/diagrams/](docs/diagrams/)             | Editable draw.io SVG diagrams (Figures 1–6)                  |
